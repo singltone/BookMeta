@@ -66,7 +66,7 @@ fun BookMetaApp() {
         if (uri != null) {
             selectedUri = uri
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            fileName = displayName(context, uri)
+            fileName = uri.lastPathSegment ?: "Вибраний файл"
             scope.launch {
                 busy = true
                 try {
@@ -221,11 +221,37 @@ object BookFile {
         return BookMeta(title = tag("title"), author = tag("creator"), description = tag("description"), publisher = tag("publisher"), year = tag("date").take(4), language = tag("language"), subjects = Regex("<dc:subject[^>]*>(.*?)</dc:subject>", RegexOption.DOT_MATCHES_ALL).findAll(opf).joinToString(", ") { unxml(it.groupValues[1]) }) to "Метадані EPUB прочитано."
     }
 
-    private fun readFb2(bytes: ByteArray): Pair<BookMeta, String> {
-        val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(bytes.inputStream())
-        fun text(tag: String) = doc.getElementsByTagName(tag).item(0)?.textContent?.trim().orEmpty()
-        return BookMeta(title = text("book-title"), author = listOf("first-name","middle-name","last-name").map { text(it) }.filter { it.isNotBlank() }.joinToString(" "), description = text("annotation"), year = text("date").take(4), language = text("lang"), publisher = text("publisher")) to "Метадані FB2 прочитано."
+    
+private fun readFb2(bytes: ByteArray): Pair<BookMeta, String> {
+    val factory = DocumentBuilderFactory.newInstance()
+    val builder = factory.newDocumentBuilder()
+    val doc = builder.parse(bytes.inputStream())
+
+    fun text(tag: String): String {
+        return doc.getElementsByTagName(tag)
+            .item(0)?.textContent?.trim() ?: ""
     }
+
+    val authorParts = listOf(
+        text("first-name"),
+        text("middle-name"),
+        text("last-name")
+    ).filter { part -> part.isNotBlank() }
+
+    val author = authorParts.joinToString(" ")
+
+    val meta = BookMeta(
+        title = text("book-title"),
+        author = author,
+        description = text("annotation"),
+        year = text("date").take(4),
+        language = text("lang"),
+        publisher = text("publisher")
+    )
+
+    return Pair(meta, "Метадані FB2 прочитано.")
+}
+
 
     fun write(context: android.content.Context, uri: Uri, m: BookMeta): String {
         val name = displayName(context, uri).lowercase()
