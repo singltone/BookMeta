@@ -295,19 +295,43 @@ private fun readFb2(bytes: ByteArray): Pair<BookMeta, String> {
         return out.toByteArray()
     }
 
-    private fun updateOpf(s: String, m: BookMeta): String {
-        var out = s
-        fun set(tag: String, value: String) {
-            if (value.isBlank()) return
-            val escaped = xml(value)
-            val pattern = Regex("(<dc:$tag\\b[^>]*>).*?(</dc:$tag>)", RegexOption.DOT_MATCHES_ALL)
-            out = if (pattern.containsMatchIn(out)) pattern.replaceFirst(out) { it.groupValues[1] + escaped + it.groupValues[2] }
-            else out.replace("</metadata>", "<dc:$tag>$escaped</dc:$tag></metadata>")
+    
+private fun updateOpf(s: String, m: BookMeta): String {
+    var out = s
+
+    fun set(tag: String, value: String) {
+        if (value.isBlank()) return
+
+        val escaped = xml(value)
+        val pattern = Regex(
+            "(<dc:$tag\\b[^>]*>).*?(</dc:$tag>)",
+            RegexOption.DOT_MATCHES_ALL
+        )
+
+        val match = pattern.find(out)
+
+        out = if (match != null) {
+            val replacement =
+                match.groupValues[1] + escaped + match.groupValues[2]
+            out.replaceRange(match.range, replacement)
+        } else {
+            out.replace(
+                "</metadata>",
+                "<dc:$tag>$escaped</dc:$tag></metadata>"
+            )
         }
-        set("title", m.title); set("creator", m.author); set("description", m.description)
-        set("publisher", m.publisher); set("date", m.year); set("language", m.language)
-        return out
     }
+
+    set("title", m.title)
+    set("creator", m.author)
+    set("description", m.description)
+    set("publisher", m.publisher)
+    set("date", m.year)
+    set("language", m.language)
+
+    return out
+}
+
 
     private fun writeFb2(bytes: ByteArray, m: BookMeta): ByteArray {
         var s = bytes.toString(Charsets.UTF_8)
