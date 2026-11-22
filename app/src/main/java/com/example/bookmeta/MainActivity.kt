@@ -47,6 +47,7 @@ private fun BookMetaScreen() {
     var meta by remember { mutableStateOf(BookMeta()) }
     var original by remember { mutableStateOf(BookMeta()) }
     var query by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf(emptyList<BookMeta>()) }
     var status by remember { mutableStateOf("Оберіть EPUB або FB2 файл") }
     var recursive by remember { mutableStateOf(true) }
     var fillOnlyEmpty by remember { mutableStateOf(false) }
@@ -167,11 +168,9 @@ private fun BookMetaScreen() {
                     busy = true
                     status = "Шукаю метадані…"
                     try {
-                        val result = withContext(Dispatchers.IO) { MetadataSearch.search(query) }
-                        if (result != null) {
-                            meta = result
-                            status = "Знайдено. Перевір дані перед застосуванням."
-                        } else status = "Нічого не знайдено"
+                        val results = withContext(Dispatchers.IO) { MetadataSearch.searchAll(query) }
+                        searchResults = results
+                        status = if (results.isNotEmpty()) "Знайдено варіантів: ${results.size}. Обери потрібне видання." else "Нічого не знайдено"
                     } catch (e: Exception) {
                         status = "Помилка пошуку: ${e.message}"
                     } finally {
@@ -180,6 +179,37 @@ private fun BookMetaScreen() {
                 }
             }
         ) { Text("Пошук Google Books") }
+
+        if (searchResults.isNotEmpty()) {
+            Text("Результати пошуку", style = MaterialTheme.typography.titleMedium)
+            searchResults.forEachIndexed { index, candidate ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        meta = candidate
+                        status = "Обрано: ${candidate.title}. Перевір метадані."
+                        searchResults = emptyList()
+                    }
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(candidate.title, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            listOf(candidate.author, candidate.year, candidate.publisher)
+                                .filter { it.isNotBlank() }.joinToString(" · ")
+                                .ifBlank { "Автор або рік не вказані" },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (candidate.isbn.isNotBlank()) {
+                            Text("ISBN: ${candidate.isbn}", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("Використати це видання", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            TextButton(onClick = { searchResults = emptyList() }, enabled = !busy) {
+                Text("Закрити результати")
+            }
+        }
 
         updateField("Назва", meta.title) { meta = meta.copy(title = it) }
         updateField("Автори", meta.author) { meta = meta.copy(author = it) }
