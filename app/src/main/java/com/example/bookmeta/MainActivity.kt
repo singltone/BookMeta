@@ -339,6 +339,25 @@ private fun BookMetaScreen() {
                             )
                             try {
                                 BookFile.write(context.contentResolver, selectedUri, updated)
+                                val verified = BookFile.read(context.contentResolver, selectedUri)
+                                val fieldsOk = listOf(
+                                    updated.title to verified.title,
+                                    updated.author to verified.author,
+                                    updated.isbn to verified.isbn,
+                                    updated.publisher to verified.publisher,
+                                    updated.year to verified.year,
+                                    updated.language to verified.language,
+                                    updated.subjects to verified.subjects,
+                                    updated.series to verified.series,
+                                    updated.seriesNumber to verified.seriesNumber,
+                                    updated.description to verified.description
+                                ).all { (expected, actual) ->
+                                    expected.trim().replace(Regex("\\s+"), " ") ==
+                                        actual.trim().replace(Regex("\\s+"), " ")
+                                }
+                                if (!fieldsOk) error("Повторна перевірка після запису виявила розбіжності.")
+                                OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}; повторне читання успішне")
+                                file to verified
                             } catch (writeError: Exception) {
                                 val restoreError = runCatching {
                                     val restoreStream = runCatching {
@@ -355,24 +374,6 @@ private fun BookMetaScreen() {
                                 }
                                 throw writeError
                             }
-                            val verified = BookFile.read(context.contentResolver, selectedUri)
-                            val fieldsOk = listOf(
-                                updated.title to verified.title,
-                                updated.author to verified.author,
-                                updated.isbn to verified.isbn,
-                                updated.publisher to verified.publisher,
-                                updated.year to verified.year,
-                                updated.language to verified.language,
-                                updated.subjects to verified.subjects,
-                                updated.series to verified.series,
-                                updated.seriesNumber to verified.seriesNumber
-                            ).all { (expected, actual) ->
-                                expected.trim().replace(Regex("\\s+"), " ") ==
-                                    actual.trim().replace(Regex("\\s+"), " ")
-                            }
-                            if (!fieldsOk) error("Файл записано, але повторна перевірка метаданих виявила розбіжності. Є резервна копія.")
-                            OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}; повторне читання успішне")
-                            file to verified
                         }
                         meta = verifiedMeta
                         original = verifiedMeta.copy()
