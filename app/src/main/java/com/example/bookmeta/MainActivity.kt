@@ -38,7 +38,7 @@ private fun BookMetaScreen() {
     val bookPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
         if(picked!=null){ uri=picked; name=picked.lastPathSegment ?: "Книга"; scope.launch { try { val loaded=BookFile.read(context.contentResolver,picked);meta=loaded;original=loaded.copy();status="Книгу завантажено" }catch(e:Exception){status="Помилка відкриття: ${e.message}"} } }
     }
-    val coverPicker=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { picked -> if(picked!=null) meta=meta.copy(coverUri=CoverManager.selectedUri(picked)) }
+    val coverPicker=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { picked -> if(picked!=null) meta=meta.copy(coverUri=picked.toString()) }
     val folderPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { picked ->
         if(picked!=null){ context.contentResolver.takePersistableUriPermission(picked,android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION); val root=DocumentFile.fromTreeUri(context,picked); val count=root?.let{FolderScanner.scan(it,recursive).size} ?: 0;status="У папці знайдено EPUB/FB2: $count" }
     }
@@ -67,6 +67,6 @@ private fun BookMetaScreen() {
         Row(verticalAlignment= androidx.compose.ui.Alignment.CenterVertically){Checkbox(checked=preview,onCheckedChange={preview=it});Text("Перегляд До / Після")}
         if(preview){Text("ДО: ${original.title} · ${original.author}");Text("ПІСЛЯ: ${meta.title} · ${meta.author}")}
         Button(enabled=uri!=null,onClick={scope.launch { try { val selected=uri!!;val backup=BackupManager.backup(context.contentResolver,selected,java.io.File(context.filesDir,"backups"),name);BookFile.write(context.contentResolver,selected,meta);status="Збережено. Резервна копія: ${backup.name}" }catch(e:Exception){status="Помилка запису: ${e.message}"} }},modifier=Modifier.fillMaxWidth()){Text("Зберегти книгу")}
-        Text("Підтримуються EPUB і FB2. Обкладинка наразі вибирається та зберігається як URI; її вбудовування у файл потребує окремої реалізації.",style=MaterialTheme.typography.bodySmall)
+        Text("Підтримуються EPUB і FB2. Обкладинка вбудовується у файл під час збереження.",style=MaterialTheme.typography.bodySmall)
     }
 }
