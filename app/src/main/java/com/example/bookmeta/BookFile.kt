@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayOutputStream
+import java.nio.charset.Charset
 import java.util.Base64
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -198,7 +199,10 @@ object BookFile {
         meta: BookMeta,
         coverBytes: ByteArray?
     ): ByteArray {
-        var xml = bytes.toString(Charsets.UTF_8)
+        val declaration = bytes.copyOfRange(0, minOf(bytes.size, 512)).toString(Charsets.US_ASCII)
+        val encodingName = Regex("""encoding=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(declaration)?.groupValues?.get(1)
+        val sourceCharset = encodingName?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: Charsets.UTF_8
+        var xml = bytes.toString(sourceCharset)
         fun replaceElement(source: String, tag: String, value: String, parent: String): String {
             val regex = Regex("<$tag\\b[^>]*>.*?</$tag>", RegexOption.DOT_MATCHES_ALL)
             val escaped = xml(value)
@@ -271,7 +275,13 @@ object BookFile {
             }
             xml = Regex("""<binary\b(?=[^>]*\bid=["']bookmeta_cover["'])[^>]*>.*?</binary>""", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
         } else if (coverBytes != null) {
+            val previousCoverId = Regex("""<coverpage\b[^>]*>.*?<image\b[^>]*(?:xlink:href|href)=["']#([^"']+)["']""", RegexOption.DOT_MATCHES_ALL)
+                .find(xml)?.groupValues?.get(1)
             val id = "bookmeta_cover"
+            if (!previousCoverId.isNullOrBlank() && previousCoverId != id) {
+                val oldBinary = Regex("""<binary\b(?=[^>]*\bid=["']${Regex.escape(previousCoverId)}["'])[^>]*>.*?</binary>""", RegexOption.DOT_MATCHES_ALL)
+                xml = oldBinary.replace(xml, "")
+            }
             val encoded = Base64.getEncoder().encodeToString(coverBytes)
             val binary = """<binary id="$id" content-type="image/jpeg">$encoded</binary>"""
             val coverpage = """<coverpage><image xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#$id"/></coverpage>"""
@@ -281,7 +291,7 @@ object BookFile {
             xml = Regex("""<binary\b(?=[^>]*\bid=["']$id["'])[^>]*>.*?</binary>""", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
             xml = xml.replace("</FictionBook>", "$binary</FictionBook>")
         }
-        return xml.toByteArray(Charsets.UTF_8)
+        return xml.toByteArray(sourceCharset)
     }
 
     // ---------------- EPUB ----------------
