@@ -47,6 +47,19 @@ object CoverManager {
         } finally { connection.disconnect() }
     }
 
+    /** Normalizes embedded image bytes to JPEG so EPUB/FB2 MIME declarations stay correct. */
+    fun normalizeAsJpeg(bytes: ByteArray, maxSize: Int = 2400, quality: Int = 92): ByteArray? {
+        val bitmap = decodeBytes(bytes, maxSize) ?: return null
+        return try {
+            ByteArrayOutputStream().use { output ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality.coerceIn(50, 100), output)
+                output.toByteArray()
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     private fun decodeBytes(bytes: ByteArray, maxSize: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
