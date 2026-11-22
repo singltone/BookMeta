@@ -62,6 +62,8 @@ private fun BookMetaScreen() {
     var extractionSource by remember { mutableStateOf<Uri?>(null) }
     var extractionDestination by remember { mutableStateOf<Uri?>(null) }
     var extractionRecursive by remember { mutableStateOf(true) }
+    var extractionSortByAuthor by remember { mutableStateOf(false) }
+    var batchSourceUri by remember { mutableStateOf<Uri?>(null) }
 
     val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
         if (picked != null) {
@@ -121,6 +123,7 @@ private fun BookMetaScreen() {
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { picked ->
         if (picked != null) {
+            batchSourceUri = picked
             scope.launch {
                 busy = true
                 try {
@@ -324,6 +327,10 @@ private fun BookMetaScreen() {
                             Checkbox(checked = extractionRecursive, onCheckedChange = { extractionRecursive = it }, enabled = !busy)
                             Text("Шукати також у підтеках")
                         }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = extractionSortByAuthor, onCheckedChange = { extractionSortByAuthor = it }, enabled = !busy)
+                            Text("Сортувати за автором")
+                        }
                     }
                 },
                 confirmButton = {
@@ -339,11 +346,11 @@ private fun BookMetaScreen() {
                                     val result = withContext(Dispatchers.IO) {
                                         val source = DocumentFile.fromTreeUri(context, sourceUri) ?: error("Не вдалося відкрити вихідну теку")
                                         val destination = DocumentFile.fromTreeUri(context, destinationUri) ?: error("Не вдалося відкрити теку призначення")
-                                        BookExtractor.extract(context.contentResolver, source, destination, extractionRecursive)
+                                        BookExtractor.extract(context.contentResolver, source, destination, extractionRecursive, extractionSortByAuthor)
                                     }
                                     OperationLog.add(context.filesDir, "Витяг книг", "Папка", true, "Скопійовано: ${result.copied}; EPUB: ${result.epub}; FB2: ${result.fb2}; помилок: ${result.failed}")
                                     recentLogs = OperationLog.recent(context.filesDir)
-                                    status = "Готово: ${result.copied} книг (EPUB: ${result.epub}, FB2: ${result.fb2}), помилок: ${result.failed}."
+                                    status = "Готово: ${result.copied} книг (EPUB: ${result.epub}, FB2: ${result.fb2}), помилок: ${result.failed}. Переміщено до «Помилка»: ${result.movedToError}."
                                     if (result.errors.isNotEmpty()) status += " " + result.errors.take(3).joinToString("; ")
                                     showExtractor = false
                                 } catch (e: Exception) {
@@ -414,8 +421,15 @@ private fun BookMetaScreen() {
                                 }
                                 saved++
                             } catch (e: Exception) {
+                                val moved = withContext(Dispatchers.IO) {
+                                    val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
+                                    val failedFile = DocumentFile.fromSingleUri(context, item.uri)
+                                    root != null && failedFile != null && runCatching {
+                                        FailureFileManager.moveToErrorFolder(context.contentResolver, root, failedFile)
+                                    }.getOrDefault(false)
+                                }
                                 OperationLog.add(context.filesDir, "Пакетне збереження", item.name, false, e.message.orEmpty())
-                                errors.add("${item.name}: ${e.message}")
+                                errors.add("${item.name}: ${e.message}" + if (moved) " (переміщено до «Помилка»)" else "")
                             }
                         }
                         recentLogs = OperationLog.recent(context.filesDir)
