@@ -281,7 +281,7 @@ object BookFile {
         meta.language = dc("language")
         val identifiers = Regex(
             """<(?:dc:)?identifier\b([^>]*)>(.*?)</(?:dc:)?identifier>""",
-            RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
         ).findAll(opf).toList()
         val isbnEntry = identifiers.firstOrNull {
             it.groupValues[1].contains("ISBN", true) ||
@@ -293,7 +293,7 @@ object BookFile {
 
         meta.author = Regex(
             """<(?:dc:)?creator\b[^>]*>(.*?)</(?:dc:)?creator>""",
-            RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
         ).findAll(opf).map { unescapeXml(it.groupValues[1].replace(Regex("<[^>]+>"), "").trim()) }
             .filter { it.isNotBlank() }.joinToString(", ")
 
