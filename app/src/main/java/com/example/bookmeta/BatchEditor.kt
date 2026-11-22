@@ -1,11 +1,15 @@
 package com.example.bookmeta
 
-data class BatchOptions(val fillOnlyEmpty:Boolean=true, val fields:Set<String> = emptySet())
 object BatchEditor {
-    fun apply(original:BookMeta, changes:BookMeta, options:BatchOptions):BookMeta {
-        val result=original.copy()
-        fun put(field:String, old:String, new:String, set:(String)->Unit) { if(field in options.fields && new.isNotBlank() && (!options.fillOnlyEmpty || old.isBlank())) set(new) }
-        put("title",result.title,changes.title){result.title=it};put("author",result.author,changes.author){result.author=it};put("description",result.description,changes.description){result.description=it};put("publisher",result.publisher,changes.publisher){result.publisher=it};put("year",result.year,changes.year){result.year=it};put("isbn",result.isbn,changes.isbn){result.isbn=it};put("language",result.language,changes.language){result.language=it};put("subjects",result.subjects,changes.subjects){result.subjects=it};put("series",result.series,changes.series){result.series=it};put("seriesNumber",result.seriesNumber,changes.seriesNumber){result.seriesNumber=it};put("coverUri",result.coverUri,changes.coverUri){result.coverUri=it}
-        return result
+    /** Applies only non-empty values; optionally preserves values already present in each book. */
+    fun apply(source: BookMeta, target: BookMeta, fillOnlyEmpty: Boolean): BookMeta {
+        fun choose(old: String, new: String) = if (new.isBlank() || (fillOnlyEmpty && old.isNotBlank())) old else new
+        return target.copy(
+            title=choose(target.title,source.title), author=choose(target.author,source.author),
+            description=choose(target.description,source.description), publisher=choose(target.publisher,source.publisher),
+            year=choose(target.year,source.year), isbn=choose(target.isbn,source.isbn), language=choose(target.language,source.language),
+            subjects=choose(target.subjects,source.subjects), series=choose(target.series,source.series),
+            seriesNumber=choose(target.seriesNumber,source.seriesNumber), coverUri=choose(target.coverUri,source.coverUri)
+        )
     }
 }
