@@ -175,6 +175,10 @@ object BookFile {
 
         replaceText("book-title", meta.title, "title-info")
         replaceText("annotation", meta.description, "title-info")
+        if ((meta.publisher.isNotBlank() || meta.year.isNotBlank() || meta.isbn.isNotBlank()) &&
+            !Regex("<publish-info\\b").containsMatchIn(xml)) {
+            xml = xml.replaceFirst("</description>", "<publish-info></publish-info></description>")
+        }
         replaceText("lang", meta.language, "title-info")
         replaceText("publisher", meta.publisher, "publish-info")
         replaceText("year", meta.year, "publish-info")
@@ -212,6 +216,8 @@ object BookFile {
                     "<last-name>${xml(last)}</last-name></author>"
                 xml = xml.replaceFirst("</title-info>", "$authorXml</title-info>")
             }
+        } else {
+            xml = Regex("<author\\b[^>]*>.*?</author>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
         }
         // Replace genres and series instead of leaving stale values behind.
         xml = Regex("<genre\\b[^>]*>.*?</genre>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
