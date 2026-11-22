@@ -337,7 +337,24 @@ private fun BookMetaScreen() {
                                 context.contentResolver, selectedUri,
                                 File(context.filesDir, "backups"), selectedName
                             )
-                            BookFile.write(context.contentResolver, selectedUri, updated)
+                            try {
+                                BookFile.write(context.contentResolver, selectedUri, updated)
+                            } catch (writeError: Exception) {
+                                val restoreError = runCatching {
+                                    val restoreStream = runCatching {
+                                        context.contentResolver.openOutputStream(selectedUri, "wt")
+                                    }.getOrNull() ?: context.contentResolver.openOutputStream(selectedUri, "w")
+                                        ?: error("Не вдалося відкрити файл для відновлення")
+                                    restoreStream.use { it.write(file.readBytes()); it.flush() }
+                                }.exceptionOrNull()
+                                if (restoreError != null) {
+                                    throw IllegalStateException(
+                                        "Помилка запису (${writeError.message}); також не вдалося відновити резервну копію (${restoreError.message})",
+                                        writeError
+                                    )
+                                }
+                                throw writeError
+                            }
                             val verified = BookFile.read(context.contentResolver, selectedUri)
                             val fieldsOk = listOf(
                                 updated.title to verified.title,
