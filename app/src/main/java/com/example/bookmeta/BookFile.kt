@@ -481,7 +481,12 @@ object BookFile {
             entries.remove(coverPath)
         } else if (coverBytes != null) {
             entries[coverPath] = coverBytes
-            opf = Regex("""<item\b(?=[^>]*id=["']$coverId["'])[^>]*/?>""", RegexOption.IGNORE_CASE).replace(opf, "")
+            opf = Regex("<item\\b[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf) { match ->
+                val item = match.value
+                val id = Regex("""\bid=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
+                val properties = Regex("""\bproperties=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
+                if (id == coverId || properties.split(Regex("\\s+")).contains("cover-image")) "" else item
+            }
             val manifestClose = opf.indexOf("</manifest>")
             if (manifestClose < 0) error("EPUB: блок manifest не знайдено")
             val item = """<item id="$coverId" href="$coverFile" media-type="image/jpeg" properties="cover-image"/>"""
