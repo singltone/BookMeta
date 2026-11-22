@@ -34,7 +34,16 @@ private fun BookMetaScreen() {
     var recursive by remember { mutableStateOf(true) }
     val pickBook=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){ uri-> if(uri!=null){fileUri=uri;fileName=uri.lastPathSegment ?: "Книга";scope.launch { try { val loaded=BookFile.read(context.contentResolver,uri);meta=loaded.copy();original=loaded.copy();status="Файл відкрито" }catch(e:Exception){status="Помилка читання: ${e.message}"} } } }
     val pickFolder=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()){ uri-> if(uri!=null) { val dir=DocumentFile.fromTreeUri(context,uri); val list=dir?.let{FolderScanner.scan(it,recursive)}.orEmpty();status="Знайдено книг: ${list.size}" } }
-    fun field(label:String, value:String, update:(String)->Unit) { OutlinedTextField(value=value,onValueChange=update,label={Text(label)},modifier=Modifier.fillMaxWidth(),minLines=1) }
+    @Composable
+fun field(label: String, value: String, update: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = update,
+        label = { Text(label) },
+        modifier = Modifier.fillMaxWidth(),
+        minLines = 1
+    )
+}
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         Text("BookMeta",style=MaterialTheme.typography.headlineMedium)
         Text(status,style=MaterialTheme.typography.bodyMedium)
