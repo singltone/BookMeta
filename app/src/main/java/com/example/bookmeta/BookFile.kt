@@ -213,11 +213,6 @@ object BookFile {
                 xml = xml.replaceFirst("</title-info>", "$authorXml</title-info>")
             }
         }
-        replaceText("lang", meta.language)
-        replaceText("isbn", meta.isbn)
-        replaceText("publisher", meta.publisher)
-        replaceText("year", meta.year)
-
         // Replace genres and series instead of leaving stale values behind.
         xml = Regex("<genre\\b[^>]*>.*?</genre>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
         if (meta.subjects.isNotBlank()) {
@@ -391,7 +386,7 @@ object BookFile {
 
         // Remove previous series metadata before writing the current series.
         opf = Regex("<meta\\b[^>]*name=[\"']calibre:series(?:_index)?[\"'][^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
-        opf = Regex("<meta\\b[^>]*property=[\"']belongs-to-collection[\"'][^>]*>.*?</meta>", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL).replace(opf, "")
+        opf = Regex("<meta\\b[^>]*property=[\"']belongs-to-collection[\"'][^>]*>.*?</meta>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).replace(opf, "")
         opf = Regex("<meta\\b(?=[^>]*refines=[\"']#bookmeta-series[\"'])[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
         if (meta.series.isNotBlank()) {
             val seriesXml = "<meta name=\"calibre:series\" content=\"${xml(meta.series)}\"/>" +
