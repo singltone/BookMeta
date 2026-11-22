@@ -58,7 +58,7 @@ object BookFile {
         val input = resolver.openInputStream(uri)?.use { it.readBytes() }
             ?: error("Не вдалося відкрити книгу")
 
-        val selectedUri = meta.coverUri.takeIf { it.startsWith("content://") || it.startsWith("file://") }
+        val selectedUri = meta.coverUri.takeIf { !meta.removeCover && (it.startsWith("content://") || it.startsWith("file://")) }
         val selectedCover = selectedUri?.let {
             CoverManager.readAsJpegBytes(resolver, Uri.parse(it))
                 ?: error("Не вдалося прочитати вибрану обкладинку")
