@@ -55,10 +55,37 @@ object BookFile {
         val coverBytes = if (meta.removeCover) null else selectedCover
             ?: meta.coverData?.let { CoverManager.normalizeAsJpeg(it) }
 
+        val isFb2 = name.endsWith(".fb2")
         val output = when {
-            name.endsWith(".fb2") -> writeFb2(input, meta, coverBytes)
+            isFb2 -> writeFb2(input, meta, coverBytes)
             name.endsWith(".epub") -> writeEpub(input, meta, coverBytes)
             else -> error("Підтримуються лише файли EPUB і FB2")
+        }
+
+        // Validate generated XML/archive before touching the original document.
+        val check = if (isFb2) readFb2(output) else readEpub(output)
+        fun comparable(value: String) = value.trim().replace(Regex("\\s+"), " ")
+        val mismatches = listOf(
+            "назва" to (meta.title to check.title),
+            "автор" to (meta.author to check.author),
+            "ISBN" to (meta.isbn to check.isbn),
+            "видавництво" to (meta.publisher to check.publisher),
+            "рік" to (meta.year to check.year),
+            "мова" to (meta.language to check.language),
+            "жанри" to (meta.subjects to check.subjects),
+            "серія" to (meta.series to check.series),
+            "номер серії" to (meta.seriesNumber to check.seriesNumber),
+            "анотація" to (meta.description to check.description)
+        ).filter { (_, pair) -> comparable(pair.first) != comparable(pair.second) }
+            .map { it.first }
+        if (mismatches.isNotEmpty()) {
+            error("Перевірка перед записом не пройдена. Не збігаються поля: ${mismatches.joinToString()}")
+        }
+        if (meta.removeCover && check.coverData != null) {
+            error("Перевірка перед записом не пройдена: обкладинка залишилася у файлі")
+        }
+        if (!meta.removeCover && coverBytes != null && check.coverData == null) {
+            error("Перевірка перед записом не пройдена: обкладинку не вдалося вбудувати")
         }
 
         resolver.openOutputStream(uri, "wt")?.use {
@@ -112,7 +139,7 @@ object BookFile {
                     if (value.isNotBlank()) {
                         when (tag) {
                             "book-title" -> meta.title = value
-                            "annotation" -> meta.description += value
+                            "annotation" -> meta.description = listOf(meta.description, value).filter { it.isNotBlank() }.joinToString(" ")
                             "lang" -> meta.language = value
                             "genre" -> meta.subjects = append(meta.subjects, value)
                             "first-name", "middle-name", "last-name" ->
