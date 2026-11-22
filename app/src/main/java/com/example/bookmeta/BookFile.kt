@@ -24,7 +24,8 @@ data class BookMeta(
     var seriesNumber: String = "",
     var coverUri: String = "",
     var coverData: ByteArray? = null,
-    var coverUrl: String = ""
+    var coverUrl: String = "",
+    var removeCover: Boolean = false
 )
 
 object BookFile {
@@ -46,9 +47,12 @@ object BookFile {
         val input = resolver.openInputStream(uri)?.use { it.readBytes() }
             ?: error("Не вдалося відкрити книгу")
 
-        val selectedCover = meta.coverUri.takeIf { it.startsWith("content://") || it.startsWith("file://") }
-            ?.let { CoverManager.readAsJpegBytes(resolver, Uri.parse(it)) }
-        val coverBytes = selectedCover
+        val selectedUri = meta.coverUri.takeIf { it.startsWith("content://") || it.startsWith("file://") }
+        val selectedCover = selectedUri?.let {
+            CoverManager.readAsJpegBytes(resolver, Uri.parse(it))
+                ?: error("Не вдалося прочитати вибрану обкладинку")
+        }
+        val coverBytes = if (meta.removeCover) null else selectedCover
             ?: meta.coverData?.let { CoverManager.normalizeAsJpeg(it) }
 
         val output = when {
@@ -155,104 +159,88 @@ object BookFile {
         coverBytes: ByteArray?
     ): ByteArray {
         var xml = bytes.toString(Charsets.UTF_8)
-
-        fun replaceText(tag: String, value: String, parent: String) {
+        fun replaceElement(source: String, tag: String, value: String, parent: String): String {
             val regex = Regex("<$tag\\b[^>]*>.*?</$tag>", RegexOption.DOT_MATCHES_ALL)
-            if (value.isBlank()) {
-                xml = regex.replace(xml, "")
-                return
-            }
             val escaped = xml(value)
-            val match = regex.find(xml)
-            if (match != null) {
-                val open = Regex("^<$tag\\b[^>]*>").find(match.value)?.value ?: "<$tag>"
-                xml = xml.replaceRange(match.range, "$open$escaped</$tag>")
-            } else {
-                val closing = "</$parent>"
-                if (xml.contains(closing)) xml = xml.replaceFirst(closing, "<$tag>$escaped</$tag>$closing")
+            val match = regex.find(source)
+            return when {
+                value.isBlank() -> regex.replace(source, "")
+                match != null -> source.replaceRange(match.range,
+                    (Regex("^<$tag\\b[^>]*>").find(match.value)?.value ?: "<$tag>") + escaped + "</$tag>")
+                source.contains("</$parent>") -> source.replaceFirst("</$parent>", "<$tag>$escaped</$tag></$parent>")
+                else -> source
             }
         }
+        val titleMatch = Regex("<title-info\\b[^>]*>.*?</title-info>", RegexOption.DOT_MATCHES_ALL).find(xml)
+            ?: error("FB2: блок title-info не знайдено")
+        var titleInfo = titleMatch.value
+        titleInfo = replaceElement(titleInfo, "book-title", meta.title, "title-info")
+        titleInfo = replaceElement(titleInfo, "annotation", meta.description, "title-info")
+        titleInfo = replaceElement(titleInfo, "lang", meta.language, "title-info")
 
-        replaceText("book-title", meta.title, "title-info")
-        replaceText("annotation", meta.description, "title-info")
+        val authorNodes = meta.author.split(Regex("\\s*,\\s*")).map { it.trim() }.filter { it.isNotBlank() }
+            .joinToString("") { name ->
+                val parts = name.split(Regex("\\s+"), limit = 3)
+                val first = parts.getOrElse(0) { "" }
+                val middle = if (parts.size > 2) parts[1] else ""
+                val last = if (parts.size > 2) parts[2] else parts.getOrElse(1) { "" }
+                "<author><first-name>\${xml(first)}</first-name>" +
+                    (if (middle.isBlank()) "" else "<middle-name>\${xml(middle)}</middle-name>") +
+                    (if (last.isBlank()) "" else "<last-name>\${xml(last)}</last-name>") + "</author>"
+            }
+        val authorRegex = Regex("<author\\b[^>]*>.*?</author>", RegexOption.DOT_MATCHES_ALL)
+        titleInfo = if (authorRegex.containsMatchIn(titleInfo)) authorRegex.replace(titleInfo, authorNodes)
+            else if (authorNodes.isNotBlank()) titleInfo.replace("</title-info>", "$authorNodes</title-info>")
+            else titleInfo
+
+        titleInfo = Regex("<genre\\b[^>]*>.*?</genre>", RegexOption.DOT_MATCHES_ALL).replace(titleInfo, "")
+        if (meta.subjects.isNotBlank()) {
+            val genres = meta.subjects.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                .joinToString("") { "<genre>\${xml(it)}</genre>" }
+            titleInfo = titleInfo.replace("</title-info>", "$genres</title-info>")
+        }
+        titleInfo = Regex("<sequence\\b[^>]*/>|<sequence\\b[^>]*>.*?</sequence>", RegexOption.DOT_MATCHES_ALL)
+            .replace(titleInfo, "")
+        if (meta.series.isNotBlank()) {
+            val number = meta.seriesNumber.ifBlank { "1" }
+            val sequence = "<sequence name=\"\${xml(meta.series)}\" number=\"\${xml(number)}\"/>"
+            titleInfo = titleInfo.replace("</title-info>", "$sequence</title-info>")
+        }
+        xml = xml.replaceRange(titleMatch.range, titleInfo)
+
         if ((meta.publisher.isNotBlank() || meta.year.isNotBlank() || meta.isbn.isNotBlank()) &&
             !Regex("<publish-info\\b").containsMatchIn(xml)) {
             xml = xml.replaceFirst("</description>", "<publish-info></publish-info></description>")
         }
-        replaceText("lang", meta.language, "title-info")
-        replaceText("publisher", meta.publisher, "publish-info")
-        replaceText("year", meta.year, "publish-info")
-        replaceText("isbn", meta.isbn, "publish-info")
+        val publishMatch = Regex("<publish-info\\b[^>]*>.*?</publish-info>", RegexOption.DOT_MATCHES_ALL).find(xml)
+        if (publishMatch != null) {
+            var publishInfo = publishMatch.value
+            publishInfo = replaceElement(publishInfo, "publisher", meta.publisher, "publish-info")
+            publishInfo = replaceElement(publishInfo, "year", meta.year, "publish-info")
+            publishInfo = replaceElement(publishInfo, "isbn", meta.isbn, "publish-info")
+            xml = xml.replaceRange(publishMatch.range, publishInfo)
+        }
 
-        // Update the first author or create one if the FB2 has no author node.
-        if (meta.author.isNotBlank()) {
-            val parts = meta.author.trim().split(Regex("\\s+"), limit = 3)
-            val first = parts.getOrElse(0) { "" }
-            val middle = if (parts.size > 2) parts[1] else ""
-            val last = if (parts.size > 2) parts[2] else parts.getOrElse(1) { "" }
-            val authorRegex = Regex("<author\\b[^>]*>.*?</author>", RegexOption.DOT_MATCHES_ALL)
-            val authorMatch = authorRegex.find(xml)
-            if (authorMatch != null) {
-                var authorXml = authorMatch.value
-                fun setPart(tag: String, value: String) {
-                    val partRegex = Regex("(<$tag\\b[^>]*>).*?(</$tag>)", RegexOption.DOT_MATCHES_ALL)
-                    val partMatch = partRegex.find(authorXml)
-                    if (value.isBlank()) {
-                        if (partMatch != null) authorXml = Regex("<$tag\\b[^>]*>.*?</$tag>", RegexOption.DOT_MATCHES_ALL).replace(authorXml, "")
-                    } else if (partMatch != null) {
-                        authorXml = authorXml.replaceRange(partMatch.range, partMatch.groupValues[1] + xml(value) + partMatch.groupValues[2])
-                    } else {
-                        authorXml = authorXml.replace("</author>", "<$tag>${xml(value)}</$tag></author>")
-                    }
-                }
-                setPart("first-name", first)
-                setPart("middle-name", middle)
-                setPart("last-name", last)
-                xml = xml.replaceRange(authorMatch.range, authorXml)
-            } else {
-                val authorXml = "<author><first-name>${xml(first)}</first-name>" +
-                    (if (middle.isBlank()) "" else "<middle-name>${xml(middle)}</middle-name>") +
-                    "<last-name>${xml(last)}</last-name></author>"
-                xml = xml.replaceFirst("</title-info>", "$authorXml</title-info>")
+        if (meta.removeCover) {
+            val oldCoverId = Regex("""<coverpage\\b[^>]*>.*?<image\\b[^>]*(?:xlink:href|href)=["']#([^"']+)["']""", RegexOption.DOT_MATCHES_ALL)
+                .find(xml)?.groupValues?.get(1)
+            xml = Regex("<coverpage\\b[^>]*>.*?</coverpage>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
+            if (!oldCoverId.isNullOrBlank()) {
+                val binaryRegex = Regex("<binary\\b(?=[^>]*\\bid=[\\"']\${Regex.escape(oldCoverId)}[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL)
+                xml = binaryRegex.replace(xml, "")
             }
-        } else {
-            xml = Regex("<author\\b[^>]*>.*?</author>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
-        }
-        // Replace genres and series instead of leaving stale values behind.
-        xml = Regex("<genre\\b[^>]*>.*?</genre>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
-        if (meta.subjects.isNotBlank()) {
-            val genreXml = meta.subjects.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                .joinToString("") { "<genre>${xml(it)}</genre>" }
-            xml = xml.replaceFirst("</title-info>", "$genreXml</title-info>")
-        }
-        xml = Regex("<sequence\\b[^>]*/>").replace(xml, "")
-        if (meta.series.isNotBlank()) {
-            val number = meta.seriesNumber.ifBlank { "1" }
-            val sequence = "<sequence name=\"${xml(meta.series)}\" number=\"${xml(number)}\"/>"
-            xml = xml.replaceFirst("</title-info>", "$sequence</title-info>")
-        }
-        // Cover: FB2 uses <binary> plus <coverpage><image href="#id"/>
-        if (coverBytes != null) {
-            val extension = "jpg"
+            xml = Regex("<binary\\b(?=[^>]*\\bid=[\\"']bookmeta_cover[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
+        } else if (coverBytes != null) {
             val id = "bookmeta_cover"
             val encoded = Base64.getEncoder().encodeToString(coverBytes)
             val binary = """<binary id="$id" content-type="image/jpeg">$encoded</binary>"""
-
-            val coverpage = """<coverpage><image href="#$id" xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#$id"/></coverpage>"""
-
-            val coverRegex = Regex("""<coverpage\b.*?</coverpage>""", RegexOption.DOT_MATCHES_ALL)
-            xml = if (coverRegex.containsMatchIn(xml)) {
-                coverRegex.replaceFirst(xml, coverpage)
-            } else {
-                xml.replaceFirst("</title-info>", "$coverpage</title-info>")
-            }
-
-            val binaryRegex = Regex("""<binary\b[^>]*id=["']$id["'][^>]*>.*?</binary>""", RegexOption.DOT_MATCHES_ALL)
-            xml = binaryRegex.replace(xml, "")
-
+            val coverpage = """<coverpage><image xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#$id"/></coverpage>"""
+            val coverRegex = Regex("<coverpage\\b[^>]*>.*?</coverpage>", RegexOption.DOT_MATCHES_ALL)
+            xml = if (coverRegex.containsMatchIn(xml)) coverRegex.replaceFirst(xml, coverpage)
+                else xml.replaceFirst("</title-info>", "$coverpage</title-info>")
+            xml = Regex("<binary\\b(?=[^>]*\\bid=[\\"']$id[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
             xml = xml.replace("</FictionBook>", "$binary</FictionBook>")
         }
-
         return xml.toByteArray(Charsets.UTF_8)
     }
 
@@ -260,7 +248,11 @@ object BookFile {
 
     private fun readEpub(bytes: ByteArray): BookMeta {
         val entries = unzip(bytes)
-        val opfPath = entries.keys.firstOrNull { it.endsWith(".opf", true) }
+        val container = entries["META-INF/container.xml"]?.toString(Charsets.UTF_8).orEmpty()
+        val declaredPath = Regex("""<rootfile\b[^>]*full-path=["']([^"']+\.opf)["']""", RegexOption.IGNORE_CASE)
+            .find(container)?.groupValues?.get(1)
+        val opfPath = declaredPath?.takeIf { entries.containsKey(it) }
+            ?: entries.keys.firstOrNull { it.endsWith(".opf", true) }
             ?: return BookMeta()
 
         val opf = entries[opfPath]?.toString(Charsets.UTF_8) ?: return BookMeta()
@@ -319,6 +311,14 @@ object BookFile {
             RegexOption.IGNORE_CASE
         ).find(opf)
         meta.seriesNumber = seriesNumber?.groupValues?.get(1).orEmpty()
+        if (meta.series.isBlank()) {
+            val collection = Regex("""<meta\b(?=[^>]*property=["']belongs-to-collection["'])[^>]*>(.*?)</meta>""",
+                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(opf)
+            meta.series = collection?.groupValues?.get(1)?.let(::unescapeXml)?.trim().orEmpty()
+            val position = Regex("""<meta\b(?=[^>]*property=["']group-position["'])[^>]*>(.*?)</meta>""",
+                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(opf)
+            if (meta.seriesNumber.isBlank()) meta.seriesNumber = position?.groupValues?.get(1)?.trim().orEmpty()
+        }
 
         // EPUB cover can be declared by EPUB 2 metadata or EPUB 3 manifest properties.
         val coverId = Regex("""<meta\b[^>]*name=["']cover["'][^>]*content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
@@ -345,97 +345,111 @@ object BookFile {
         coverBytes: ByteArray?
     ): ByteArray {
         val entries = unzip(bytes)
-        val opfPath = entries.keys.firstOrNull { it.endsWith(".opf", true) }
+        val container = entries["META-INF/container.xml"]?.toString(Charsets.UTF_8).orEmpty()
+        val declaredPath = Regex("""<rootfile\\b[^>]*full-path=["']([^"']+\\.opf)["']""", RegexOption.IGNORE_CASE)
+            .find(container)?.groupValues?.get(1)
+        val opfPath = declaredPath?.takeIf { entries.containsKey(it) }
+            ?: entries.keys.firstOrNull { it.endsWith(".opf", true) }
             ?: error("EPUB: OPF-файл не знайдено")
-
         var opf = entries[opfPath]!!.toString(Charsets.UTF_8)
 
         fun setDc(tag: String, value: String) {
-            val regex = Regex("<dc:$tag\\b[^>]*>.*?</dc:$tag>", RegexOption.DOT_MATCHES_ALL)
+            val regex = Regex("<(?:dc:)?$tag\\b[^>]*>.*?</(?:dc:)?$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
             if (value.isBlank()) { opf = regex.replace(opf, ""); return }
             val match = regex.find(opf)
             val escaped = xml(value)
             opf = if (match != null) {
-                val open = Regex("^<dc:$tag\\b[^>]*>").find(match.value)?.value ?: "<dc:$tag>"
-                opf.replaceRange(match.range, "$open$escaped</dc:$tag>")
+                val opening = Regex("^<[^>]+>").find(match.value)?.value ?: "<dc:$tag>"
+                val closing = Regex("</[^>]+>$").find(match.value)?.value ?: "</dc:$tag>"
+                opf.replaceRange(match.range, "$opening$escaped$closing")
             } else opf.replace("</metadata>", "<dc:$tag>$escaped</dc:$tag></metadata>")
         }
-
+        fun setDcList(tag: String, values: List<String>) {
+            val regex = Regex("<(?:dc:)?$tag\\b[^>]*>.*?</(?:dc:)?$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            opf = regex.replace(opf, "")
+            val nodes = values.map { it.trim() }.filter { it.isNotBlank() }
+                .joinToString("") { "<dc:$tag>\${xml(it)}</dc:$tag>" }
+            if (nodes.isNotBlank()) opf = opf.replace("</metadata>", "$nodes</metadata>")
+        }
         setDc("title", meta.title)
-        setDc("creator", meta.author)
+        setDcList("creator", meta.author.split(Regex("\\s*,\\s*")))
         setDc("description", meta.description)
         setDc("publisher", meta.publisher)
         setDc("date", meta.year)
         setDc("language", meta.language)
 
-        // ISBN: update or remove only the ISBN identifier.
-        val identifiers = Regex("<dc:identifier\\b[^>]*>.*?</dc:identifier>", RegexOption.DOT_MATCHES_ALL)
-        val isbnMatch = identifiers.findAll(opf).firstOrNull { it.value.contains("ISBN", true) || Regex("97[89][0-9 -]{10,}").containsMatchIn(it.value) }
+        val identifiers = Regex("<(?:dc:)?identifier\\b[^>]*>.*?</(?:dc:)?identifier>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val isbnMatch = identifiers.findAll(opf).firstOrNull {
+            it.value.contains("ISBN", true) ||
+                Regex("(?:97[89][ -]?)?[0-9][0-9 -]{8,}[0-9Xx]").containsMatchIn(it.value.replace(Regex("<[^>]+>"), ""))
+        }
         if (meta.isbn.isBlank()) {
             if (isbnMatch != null) opf = opf.replaceRange(isbnMatch.range, "")
         } else {
-            val escaped = xml(meta.isbn)
+            val value = xml(meta.isbn)
             if (isbnMatch != null) {
-                val open = Regex("^<dc:identifier\\b[^>]*>").find(isbnMatch.value)?.value ?: "<dc:identifier>"
-                opf = opf.replaceRange(isbnMatch.range, "$open$escaped</dc:identifier>")
-            } else opf = opf.replace("</metadata>", "<dc:identifier id=\"bookmeta-isbn\">$escaped</dc:identifier></metadata>")
+                val opening = Regex("^<[^>]+>").find(isbnMatch.value)?.value ?: "<dc:identifier>"
+                val closing = Regex("</[^>]+>$").find(isbnMatch.value)?.value ?: "</dc:identifier>"
+                opf = opf.replaceRange(isbnMatch.range, "$opening$value$closing")
+            } else opf = opf.replace("</metadata>", "<dc:identifier id=\"bookmeta-isbn\">$value</dc:identifier></metadata>")
         }
 
-        // Replace all subjects, including clearing the field.
         opf = Regex("<dc:subject\\b[^>]*>.*?</dc:subject>", RegexOption.DOT_MATCHES_ALL).replace(opf, "")
-        if (meta.subjects.isNotBlank()) {
-            val subjectXml = meta.subjects.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                .joinToString("") { "<dc:subject>${xml(it)}</dc:subject>" }
-            opf = opf.replace("</metadata>", "$subjectXml</metadata>")
-        }
+        val subjects = meta.subjects.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            .joinToString("") { "<dc:subject>\${xml(it)}</dc:subject>" }
+        if (subjects.isNotBlank()) opf = opf.replace("</metadata>", "$subjects</metadata>")
 
-        // Remove previous series metadata before writing the current series.
-        opf = Regex("<meta\\b[^>]*name=[\"']calibre:series(?:_index)?[\"'][^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
-        opf = Regex("<meta\\b[^>]*property=[\"']belongs-to-collection[\"'][^>]*>.*?</meta>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).replace(opf, "")
-        opf = Regex("<meta\\b(?=[^>]*refines=[\"']#bookmeta-series[\"'])[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
+        val metaTags = Regex("<meta\\b[^>]*(?:/>|>.*?</meta>)", RegexOption.DOT_MATCHES_ALL)
+        opf = metaTags.replace(opf) { match ->
+            val tag = match.value
+            val seriesTag = Regex("""name=["']calibre:series(?:_index)?["']""", RegexOption.IGNORE_CASE).containsMatchIn(tag)
+            val collectionTag = Regex("""property=["']belongs-to-collection["']""", RegexOption.IGNORE_CASE).containsMatchIn(tag)
+            val refinementTag = Regex("""refines=["']#bookmeta-series["']""", RegexOption.IGNORE_CASE).containsMatchIn(tag)
+            if (seriesTag || collectionTag || refinementTag) "" else tag
+        }
         if (meta.series.isNotBlank()) {
-            val seriesXml = "<meta name=\"calibre:series\" content=\"${xml(meta.series)}\"/>" +
-                "<meta name=\"calibre:series_index\" content=\"${xml(meta.seriesNumber)}\"/>" +
-                "<meta property=\"belongs-to-collection\" id=\"bookmeta-series\">${xml(meta.series)}</meta>" +
+            val number = meta.seriesNumber.ifBlank { "1" }
+            val seriesXml = "<meta name=\"calibre:series\" content=\"\${xml(meta.series)}\"/>" +
+                "<meta name=\"calibre:series_index\" content=\"\${xml(number)}\"/>" +
+                "<meta property=\"belongs-to-collection\" id=\"bookmeta-series\">\${xml(meta.series)}</meta>" +
                 "<meta refines=\"#bookmeta-series\" property=\"collection-type\">series</meta>" +
-                "<meta refines=\"#bookmeta-series\" property=\"group-position\">${xml(meta.seriesNumber)}</meta>"
+                "<meta refines=\"#bookmeta-series\" property=\"group-position\">\${xml(number)}</meta>"
             opf = opf.replace("</metadata>", "$seriesXml</metadata>")
         }
-        // Cover image: embed image into EPUB and update manifest metadata
-        if (coverBytes != null) {
-            val opfDir = opfPath.substringBeforeLast('/', "")
-            val coverFile = "bookmeta-cover.jpg"
-            val coverPath = if (opfDir.isBlank()) coverFile else "$opfDir/$coverFile"
-            entries[coverPath] = coverBytes
 
-            val id = "bookmeta-cover"
-            val mediaType = "image/jpeg"
-
-            val manifestRegex = Regex("""<manifest\b[^>]*>""")
-            val manifestStart = manifestRegex.find(opf)
-            if (manifestStart != null) {
-                val manifestEnd = opf.indexOf("</manifest>", manifestStart.range.last)
-                if (manifestEnd >= 0) {
-                    // Remove an older BookMeta cover entry before adding the replacement.
-                    val oldItem = Regex("""<item\b(?=[^>]*id=["']bookmeta-cover["'])[^>]*/?>""", RegexOption.IGNORE_CASE)
-                    opf = oldItem.replace(opf, "")
-                    val refreshedManifestEnd = opf.indexOf("</manifest>", manifestStart.range.first)
-                    if (refreshedManifestEnd >= 0) {
-                        val item = """<item id="$id" href="$coverFile" media-type="$mediaType" properties="cover-image"/>"""
-                        opf = opf.substring(0, refreshedManifestEnd) + item + opf.substring(refreshedManifestEnd)
-                    }
-                }
+        val opfDir = opfPath.substringBeforeLast('/', "")
+        val coverFile = "bookmeta-cover.jpg"
+        val coverPath = if (opfDir.isBlank()) coverFile else "$opfDir/$coverFile"
+        val coverId = "bookmeta-cover"
+        if (meta.removeCover) {
+            val coverIds = Regex("""<meta\\b[^>]*name=["']cover["'][^>]*content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .findAll(opf).map { it.groupValues[1] }.toSet()
+            opf = Regex("<meta\\b[^>]*name=[\\"']cover[\\"'][^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
+            val removedPaths = mutableListOf<String>()
+            opf = Regex("<item\\b[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf) { match ->
+                val item = match.value
+                val id = Regex("""\\bid=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
+                val href = Regex("""\\bhref=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
+                val coverItem = id == coverId || id in coverIds ||
+                    Regex("""properties=["'][^"']*cover-image""", RegexOption.IGNORE_CASE).containsMatchIn(item)
+                if (coverItem) {
+                    if (href.isNotBlank()) removedPaths.add(normalizeZipPath(if (opfDir.isBlank()) href else "$opfDir/$href"))
+                    ""
+                } else item
             }
-
-            // OPF2 compatibility metadata
-            opf = opf.replace("</metadata>", """<meta name="cover" content="$id"/></metadata>""")
-
-            // OPF path may have nested folders: use relative cover path
-            entries[opfPath] = opf.toByteArray(Charsets.UTF_8)
-        } else {
-            entries[opfPath] = opf.toByteArray(Charsets.UTF_8)
+            removedPaths.forEach { entries.remove(it) }
+            entries.remove(coverPath)
+        } else if (coverBytes != null) {
+            entries[coverPath] = coverBytes
+            opf = Regex("<item\\b(?=[^>]*id=[\\"']$coverId[\\"'])[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
+            val manifestClose = opf.indexOf("</manifest>")
+            if (manifestClose < 0) error("EPUB: блок manifest не знайдено")
+            val item = """<item id="$coverId" href="$coverFile" media-type="image/jpeg" properties="cover-image"/>"""
+            opf = opf.substring(0, manifestClose) + item + opf.substring(manifestClose)
+            opf = Regex("<meta\\b[^>]*name=[\\"']cover[\\"'][^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
+            opf = opf.replace("</metadata>", """<meta name="cover" content="$coverId"/></metadata>""")
         }
-
+        entries[opfPath] = opf.toByteArray(Charsets.UTF_8)
         return zip(entries)
     }
 
