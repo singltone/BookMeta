@@ -53,6 +53,9 @@ private fun BookMetaScreen() {
     var showPreview by remember { mutableStateOf(false) }
     var batchItems by remember { mutableStateOf(emptyList<BatchBookItem>()) }
     var busy by remember { mutableStateOf(false) }
+    var recentLogs by remember { mutableStateOf(OperationLog.recent(context.filesDir)) }
+    var backups by remember { mutableStateOf(emptyList<File>()) }
+    var restoreCandidate by remember { mutableStateOf<File?>(null) }
 
     val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
         if (picked != null) {
@@ -63,6 +66,7 @@ private fun BookMetaScreen() {
                     android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
             bookName = picked.lastPathSegment ?: "Книга"
+            backups = BackupManager.list(File(context.filesDir, "backups"), bookName)
             scope.launch {
                 busy = true
                 try {
@@ -266,12 +270,15 @@ private fun BookMetaScreen() {
                                         File(context.filesDir, "backups"), item.name
                                     )
                                     BookFile.write(context.contentResolver, item.uri, updated)
+                                    OperationLog.add(context.filesDir, "Пакетне збереження", item.name, true, "Резервна копія: ${backup.name}")
                                 }
                                 saved++
                             } catch (e: Exception) {
+                                OperationLog.add(context.filesDir, "Пакетне збереження", item.name, false, e.message.orEmpty())
                                 errors.add("${item.name}: ${e.message}")
                             }
                         }
+                        recentLogs = OperationLog.recent(context.filesDir)
                         status = "Пакетно збережено: $saved з ${selected.size}. Резервні копії створено."
                         if (errors.isNotEmpty()) status += " Помилки: " + errors.take(3).joinToString("; ")
                         busy = false
@@ -311,11 +318,16 @@ private fun BookMetaScreen() {
                                 File(context.filesDir, "backups"), selectedName
                             )
                             BookFile.write(context.contentResolver, selectedUri, updated)
+                            OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}")
                             file
                         }
                         original = updated.copy()
+                        backups = BackupManager.list(File(context.filesDir, "backups"), selectedName)
+                        recentLogs = OperationLog.recent(context.filesDir)
                         status = "Збережено. Резервна копія: ${backup.name}"
                     } catch (e: Exception) {
+                        OperationLog.add(context.filesDir, "Збереження", selectedName, false, e.message.orEmpty())
+                        recentLogs = OperationLog.recent(context.filesDir)
                         status = "Помилка запису: ${e.message}"
                     } finally {
                         busy = false
@@ -323,6 +335,64 @@ private fun BookMetaScreen() {
                 }
             }
         ) { Text("Зберегти книгу") }
+
+        HorizontalDivider()
+        Text("Резервні копії та історія", style = MaterialTheme.typography.titleLarge)
+        if (bookUri != null) {
+            Text("Копії для поточної книги: ${backups.size}")
+            backups.take(5).forEach { backup ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(backup.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { restoreCandidate = backup }, enabled = !busy) { Text("Відновити") }
+                }
+            }
+            if (backups.isEmpty()) Text("Для цієї книги резервних копій ще немає.")
+        } else Text("Відкрий книгу, щоб побачити її резервні копії.")
+        Text("Останні операції", style = MaterialTheme.typography.titleMedium)
+        if (recentLogs.isEmpty()) Text("Історія поки порожня.", style = MaterialTheme.typography.bodySmall)
+        else recentLogs.take(10).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        TextButton(onClick = { recentLogs = OperationLog.recent(context.filesDir, 100) }, enabled = !busy) {
+            Text("Оновити історію")
+        }
+
+        restoreCandidate?.let { candidate ->
+            AlertDialog(
+                onDismissRequest = { restoreCandidate = null },
+                title = { Text("Відновити резервну копію?") },
+                text = { Text("Поточний вміст книги буде замінено копією:\n${candidate.name}") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val target = bookUri
+                        if (target != null) {
+                            scope.launch {
+                                busy = true
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        val safetyCopy = BackupManager.backup(
+                                            context.contentResolver, target,
+                                            File(context.filesDir, "backups"), bookName
+                                        )
+                                        BackupManager.restore(context.contentResolver, target, candidate)
+                                        OperationLog.add(context.filesDir, "Відновлення", bookName, true, "Перед відновленням збережено: ${safetyCopy.name}")
+                                    }
+                                    backups = BackupManager.list(File(context.filesDir, "backups"), bookName)
+                                    recentLogs = OperationLog.recent(context.filesDir)
+                                    status = "Резервну копію відновлено."
+                                } catch (e: Exception) {
+                                    OperationLog.add(context.filesDir, "Відновлення", bookName, false, e.message.orEmpty())
+                                    recentLogs = OperationLog.recent(context.filesDir)
+                                    status = "Помилка відновлення: ${e.message}"
+                                } finally {
+                                    restoreCandidate = null
+                                    busy = false
+                                }
+                            }
+                        } else restoreCandidate = null
+                    }) { Text("Відновити") }
+                },
+                dismissButton = { TextButton(onClick = { restoreCandidate = null }) { Text("Скасувати") } }
+            )
+        }
 
         Text(
             "Підтримуються EPUB і FB2. Перед кожним записом створюється резервна копія у приватному сховищі програми.",
