@@ -205,15 +205,12 @@ object BookFile {
         var xml = bytes.toString(sourceCharset)
         fun replaceElement(source: String, tag: String, value: String, parent: String): String {
             val regex = Regex("<$tag\\b[^>]*>.*?</$tag>", RegexOption.DOT_MATCHES_ALL)
-            val escaped = xml(value)
-            val match = regex.find(source)
-            return when {
-                value.isBlank() -> regex.replace(source, "")
-                match != null -> source.replaceRange(match.range,
-                    (Regex("^<$tag\\b[^>]*>").find(match.value)?.value ?: "<$tag>") + escaped + "</$tag>")
-                source.contains("</$parent>") -> source.replaceFirst("</$parent>", "<$tag>$escaped</$tag></$parent>")
-                else -> source
-            }
+            val first = regex.find(source)
+            val opening = first?.let { Regex("^<$tag\\b[^>]*>").find(it.value)?.value } ?: "<$tag>"
+            val cleaned = regex.replace(source, "")
+            if (value.isBlank()) return cleaned
+            val node = "$opening${xml(value)}</$tag>"
+            return if (cleaned.contains("</$parent>")) cleaned.replaceFirst("</$parent>", "$node</$parent>") else source
         }
         val titleMatch = Regex("<title-info\\b[^>]*>.*?</title-info>", RegexOption.DOT_MATCHES_ALL).find(xml)
             ?: error("FB2: блок title-info не знайдено")
@@ -406,14 +403,14 @@ object BookFile {
 
         fun setDc(tag: String, value: String) {
             val regex = Regex("<(?:dc:)?$tag\\b[^>]*>.*?</(?:dc:)?$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-            if (value.isBlank()) { opf = regex.replace(opf, ""); return }
-            val match = regex.find(opf)
-            val escaped = xml(value)
-            opf = if (match != null) {
-                val opening = Regex("^<[^>]+>").find(match.value)?.value ?: "<dc:$tag>"
-                val closing = Regex("</[^>]+>$").find(match.value)?.value ?: "</dc:$tag>"
-                opf.replaceRange(match.range, "$opening$escaped$closing")
-            } else opf.replace("</metadata>", "<dc:$tag>$escaped</dc:$tag></metadata>")
+            val first = regex.find(opf)
+            val opening = first?.let { Regex("^<[^>]+>").find(it.value)?.value } ?: "<dc:$tag>"
+            val closing = first?.let { Regex("</[^>]+>$").find(it.value)?.value } ?: "</dc:$tag>"
+            opf = regex.replace(opf, "")
+            if (value.isNotBlank()) {
+                val node = "$opening${xml(value)}$closing"
+                opf = opf.replace("</metadata>", "$node</metadata>")
+            }
         }
         fun setDcList(tag: String, values: List<String>) {
             val regex = Regex("<(?:dc:)?$tag\\b[^>]*>.*?</(?:dc:)?$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
@@ -430,19 +427,16 @@ object BookFile {
         setDc("language", meta.language)
 
         val identifiers = Regex("<(?:dc:)?identifier\\b[^>]*>.*?</(?:dc:)?identifier>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        val isbnMatch = identifiers.findAll(opf).firstOrNull {
-            it.value.contains("ISBN", true) ||
-                Regex("(?:97[89][ -]?)?[0-9][0-9 -]{8,}[0-9Xx]").containsMatchIn(it.value.replace(Regex("<[^>]+>"), ""))
-        }
-        if (meta.isbn.isBlank()) {
-            if (isbnMatch != null) opf = opf.replaceRange(isbnMatch.range, "")
-        } else {
-            val value = xml(meta.isbn)
-            if (isbnMatch != null) {
-                val opening = Regex("^<[^>]+>").find(isbnMatch.value)?.value ?: "<dc:identifier>"
-                val closing = Regex("</[^>]+>$").find(isbnMatch.value)?.value ?: "</dc:identifier>"
-                opf = opf.replaceRange(isbnMatch.range, "$opening$value$closing")
-            } else opf = opf.replace("</metadata>", "<dc:identifier id=\"bookmeta-isbn\">$value</dc:identifier></metadata>")
+        fun isIsbnIdentifier(value: String): Boolean =
+            value.contains("ISBN", true) ||
+                Regex("(?:97[89][ -]?)?[0-9][0-9 -]{8,}[0-9Xx]").containsMatchIn(value.replace(Regex("<[^>]+>"), ""))
+        val isbnMatch = identifiers.findAll(opf).firstOrNull { isIsbnIdentifier(it.value) }
+        val isbnOpening = isbnMatch?.let { Regex("^<[^>]+>").find(it.value)?.value } ?: "<dc:identifier id=\"bookmeta-isbn\">"
+        val isbnClosing = isbnMatch?.let { Regex("</[^>]+>$").find(it.value)?.value } ?: "</dc:identifier>"
+        opf = identifiers.replace(opf) { match -> if (isIsbnIdentifier(match.value)) "" else match.value }
+        if (meta.isbn.isNotBlank()) {
+            val node = "$isbnOpening${xml(meta.isbn)}$isbnClosing"
+            opf = opf.replace("</metadata>", "$node</metadata>")
         }
 
         opf = Regex("<dc:subject\\b[^>]*>.*?</dc:subject>", RegexOption.DOT_MATCHES_ALL).replace(opf, "")
