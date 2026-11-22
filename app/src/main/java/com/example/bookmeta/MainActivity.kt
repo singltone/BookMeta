@@ -480,10 +480,10 @@ private fun BookMetaScreen() {
                             } catch (e: Exception) {
                                 val moved = withContext(Dispatchers.IO) {
                                     val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
-                                    val failedFile = DocumentFile.fromSingleUri(context, item.uri)
-                                    root != null && failedFile != null && runCatching {
-                                        FailureFileManager.moveToErrorFolder(context.contentResolver, root, failedFile)
-                                    }.getOrDefault(false)
+                                    val failedFile = root?.let { folder ->
+                                        FolderScanner.scan(folder, true).firstOrNull { doc -> doc.uri == item.uri }
+                                    }
+                                    root != null && failedFile != null && FailureFileManager.moveToErrorFolder(context.contentResolver, root, failedFile)
                                 }
                                 OperationLog.add(context.filesDir, "Пакетне збереження", item.name, false, e.message.orEmpty())
                                 errors.add("${item.name}: ${e.message}" + if (moved) " (переміщено до «Помилка»)" else "")
