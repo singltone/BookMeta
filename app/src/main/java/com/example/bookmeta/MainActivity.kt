@@ -412,11 +412,13 @@ private fun BookMetaScreen() {
                                 val found = withContext(Dispatchers.IO) {
                                     val current = BookFile.read(context.contentResolver, item.uri)
                                     val fileTitle = item.name.substringBeforeLast('.', item.name)
-                                    val searchTerm = current.isbn.takeIf { it.isNotBlank() }
-                                        ?: listOf(current.title.ifBlank { fileTitle }, current.author)
-                                            .filter { it.isNotBlank() }.joinToString(" ")
-                                    if (searchTerm.isBlank()) null
-                                    else MetadataSearch.searchAll(searchTerm).firstOrNull()?.let { candidate ->
+                                    val titleSearch = listOf(current.title.ifBlank { fileTitle }, current.author)
+                                        .filter { it.isNotBlank() }.joinToString(" ")
+                                    val candidate = current.isbn.takeIf { it.isNotBlank() }
+                                        ?.let { isbn -> MetadataSearch.searchAll(isbn).firstOrNull() }
+                                        ?: titleSearch.takeIf { it.isNotBlank() }
+                                            ?.let { MetadataSearch.searchAll(it).firstOrNull() }
+                                    candidate?.let { candidate ->
                                         val updated = BatchEditor.apply(candidate, current, true)
                                         val backup = BackupManager.backup(
                                             context.contentResolver, item.uri,
@@ -431,7 +433,7 @@ private fun BookMetaScreen() {
                                     val moved = withContext(Dispatchers.IO) {
                                         val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
                                         val file = root?.let { FolderScanner.scan(it, true).firstOrNull { doc -> doc.uri == item.uri } }
-                                        root != null && file != null && FailureFileManager.moveToErrorFolder(context.contentResolver, root, file)
+                                        root != null && file != null && FailureFileManager.moveOrCopyToErrorFolder(context.contentResolver, root, file)
                                     }
                                     if (moved) noMetadataCount++ else failedCount++
                                     OperationLog.add(context.filesDir, "Автопошук метаданих", item.name, false,
@@ -441,9 +443,9 @@ private fun BookMetaScreen() {
                                 val moved = withContext(Dispatchers.IO) {
                                     val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
                                     val file = root?.let { FolderScanner.scan(it, true).firstOrNull { doc -> doc.uri == item.uri } }
-                                    root != null && file != null && FailureFileManager.moveToErrorFolder(context.contentResolver, root, file)
+                                    root != null && file != null && FailureFileManager.moveOrCopyToErrorFolder(context.contentResolver, root, file)
                                 }
-                                if (moved) failedCount++ else failedCount++
+                                failedCount++
                                 OperationLog.add(context.filesDir, "Автопошук метаданих", item.name, false, e.message.orEmpty())
                             }
                         }
@@ -483,7 +485,7 @@ private fun BookMetaScreen() {
                                     val failedFile = root?.let { folder ->
                                         FolderScanner.scan(folder, true).firstOrNull { doc -> doc.uri == item.uri }
                                     }
-                                    root != null && failedFile != null && FailureFileManager.moveToErrorFolder(context.contentResolver, root, failedFile)
+                                    root != null && failedFile != null && FailureFileManager.moveOrCopyToErrorFolder(context.contentResolver, root, failedFile)
                                 }
                                 OperationLog.add(context.filesDir, "Пакетне збереження", item.name, false, e.message.orEmpty())
                                 errors.add("${item.name}: ${e.message}" + if (moved) " (переміщено до «Помилка»)" else "")
