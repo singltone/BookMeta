@@ -22,7 +22,8 @@ data class BookMeta(
     var subjects: String = "",
     var series: String = "",
     var seriesNumber: String = "",
-    var coverUri: String = ""
+    var coverUri: String = "",
+    var coverData: ByteArray? = null
 )
 
 object BookFile {
@@ -46,7 +47,7 @@ object BookFile {
 
         val coverBytes = meta.coverUri.takeIf { it.isNotBlank() }?.let {
             resolver.openInputStream(Uri.parse(it))?.use { stream -> stream.readBytes() }
-        }
+        } ?: meta.coverData
 
         val output = when {
             name.endsWith(".fb2") -> writeFb2(input, meta, coverBytes)
@@ -130,6 +131,17 @@ object BookFile {
                     }
                     tag = ""
                 }
+            }
+        }
+        // Resolve the FB2 cover reference to its embedded base64 binary.
+        val source = bytes.toString(Charsets.UTF_8)
+        val coverHref = Regex("""<coverpage\b[^>]*>.*?<image\b[^>]*(?:xlink:href|href)=["']#([^"']+)["']""", RegexOption.DOT_MATCHES_ALL)
+            .find(source)?.groupValues?.get(1)
+        if (!coverHref.isNullOrBlank()) {
+            val binary = Regex("""<binary\b(?=[^>]*\bid=["']${Regex.escape(coverHref)}["'])[^>]*>(.*?)</binary>""", RegexOption.DOT_MATCHES_ALL)
+                .find(source)?.groupValues?.get(1)?.filterNot { it.isWhitespace() }
+            if (!binary.isNullOrBlank()) {
+                meta.coverData = runCatching { Base64.getMimeDecoder().decode(binary) }.getOrNull()
             }
         }
         return meta
@@ -290,6 +302,22 @@ object BookFile {
             RegexOption.IGNORE_CASE
         ).find(opf)
         meta.seriesNumber = seriesNumber?.groupValues?.get(1).orEmpty()
+
+        // EPUB cover can be declared by EPUB 2 metadata or EPUB 3 manifest properties.
+        val coverId = Regex("""<meta\b[^>]*name=["']cover["'][^>]*content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            .find(opf)?.groupValues?.get(1)
+        val coverItem = if (!coverId.isNullOrBlank()) {
+            Regex("""<item\b(?=[^>]*id=["']${Regex.escape(coverId)}["'])[^>]*href=["']([^"']+)["'][^>]*/?>""", RegexOption.IGNORE_CASE)
+                .find(opf)
+        } else null
+        val epub3Cover = Regex("""<item\b(?=[^>]*properties=["'][^"']*cover-image)[^>]*href=["']([^"']+)["'][^>]*/?>""", RegexOption.IGNORE_CASE)
+            .find(opf)
+        val coverHref = coverItem?.groupValues?.get(1) ?: epub3Cover?.groupValues?.get(1)
+        if (!coverHref.isNullOrBlank()) {
+            val opfDir = opfPath.substringBeforeLast('/', "")
+            val coverPath = normalizeZipPath(if (opfDir.isBlank()) coverHref else "$opfDir/$coverHref")
+            meta.coverData = entries[coverPath]
+        }
 
         return meta
     }
@@ -453,6 +481,18 @@ object BookFile {
             }
         }
         return output.toByteArray()
+    }
+
+    private fun normalizeZipPath(path: String): String {
+        val parts = mutableListOf<String>()
+        path.replace('\\', '/').split('/').forEach { part ->
+            when (part) {
+                "", "." -> Unit
+                ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex)
+                else -> parts.add(part)
+            }
+        }
+        return parts.joinToString("/")
     }
 
     // ---------------- XML helpers ----------------
