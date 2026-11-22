@@ -23,7 +23,8 @@ data class BookMeta(
     var series: String = "",
     var seriesNumber: String = "",
     var coverUri: String = "",
-    var coverData: ByteArray? = null
+    var coverData: ByteArray? = null,
+    var coverUrl: String = ""
 )
 
 object BookFile {
