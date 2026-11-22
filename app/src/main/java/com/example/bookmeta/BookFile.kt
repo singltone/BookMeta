@@ -341,23 +341,25 @@ object BookFile {
             .filter { it.isNotBlank() }.joinToString(", ")
 
         val subjects = Regex(
-            """<dc:subject\b[^>]*>(.*?)</dc:subject>""",
+            """<(?:dc:)?subject\b[^>]*>(.*?)</(?:dc:)?subject>""",
             RegexOption.DOT_MATCHES_ALL
         ).findAll(opf).map { unescapeXml(it.groupValues[1].trim()) }
             .filter { it.isNotBlank() }.toList()
         meta.subjects = subjects.joinToString(", ")
 
+        fun attribute(tag: String, name: String): String? =
+            Regex("""\b${Regex.escape(name)}=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(tag)?.groupValues?.get(1)
+        val metaTagsForRead = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opf).map { it.value }.toList()
+        val calibreSeriesTag = metaTagsForRead.firstOrNull { attribute(it, "name").equals("calibre:series", true) }
+        val calibreSeriesNumberTag = metaTagsForRead.firstOrNull { attribute(it, "name").equals("calibre:series_index", true) }
         val series = Regex(
-            """<meta\b[^>]*name=["']calibre:series["'][^>]*content=["']([^"']*)["'][^>]*/?>""",
+            """<meta\b[^>]*name=["']calibre:series["'][^>]*/?>""",
             RegexOption.IGNORE_CASE
         ).find(opf)
-        meta.series = series?.groupValues?.get(1)?.let(::unescapeXml).orEmpty()
+        meta.series = calibreSeriesTag?.let { attribute(it, "content") }?.let(::unescapeXml).orEmpty()
 
-        val seriesNumber = Regex(
-            """<meta\b[^>]*name=["']calibre:series_index["'][^>]*content=["']([^"']*)["'][^>]*/?>""",
-            RegexOption.IGNORE_CASE
-        ).find(opf)
-        meta.seriesNumber = seriesNumber?.groupValues?.get(1).orEmpty()
+        meta.seriesNumber = calibreSeriesNumberTag?.let { attribute(it, "content") }.orEmpty()
         if (meta.series.isBlank()) {
             val collection = Regex("""<meta\b(?=[^>]*property=["']belongs-to-collection["'])[^>]*>(.*?)</meta>""",
                 setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(opf)
@@ -368,9 +370,6 @@ object BookFile {
         }
 
         // EPUB cover can be declared by EPUB 2 metadata or EPUB 3 manifest properties.
-        fun attribute(tag: String, name: String): String? =
-            Regex("""\b${Regex.escape(name)}=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                .find(tag)?.groupValues?.get(1)
         val metaTags = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opf)
         val coverMeta = metaTags.firstOrNull { attribute(it.value, "name").equals("cover", true) }
         val coverId = coverMeta?.value?.let { attribute(it, "content") }
@@ -439,7 +438,7 @@ object BookFile {
             opf = opf.replace("</metadata>", "$node</metadata>")
         }
 
-        opf = Regex("<dc:subject\\b[^>]*>.*?</dc:subject>", RegexOption.DOT_MATCHES_ALL).replace(opf, "")
+        opf = Regex("<(?:dc:)?subject\\b[^>]*>.*?</(?:dc:)?subject>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).replace(opf, "")
         val subjects = meta.subjects.split(",").map { it.trim() }.filter { it.isNotBlank() }
             .joinToString("") { "<dc:subject>${xml(it)}</dc:subject>" }
         if (subjects.isNotBlank()) opf = opf.replace("</metadata>", "$subjects</metadata>")
