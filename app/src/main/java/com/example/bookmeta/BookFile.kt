@@ -279,10 +279,23 @@ object BookFile {
         meta.publisher = dc("publisher")
         meta.year = dc("date")
         meta.language = dc("language")
-        meta.isbn = Regex("""identifier[^>]*>.*?ISBN.*?""", RegexOption.IGNORE_CASE)
-            .find(opf)?.groupValues?.getOrNull(0)?.let {
-                Regex(""">(.*?)<""").find(it)?.groupValues?.get(1)
-            }.orEmpty()
+        val identifiers = Regex(
+            """<(?:dc:)?identifier\\b([^>]*)>(.*?)</(?:dc:)?identifier>""",
+            RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE
+        ).findAll(opf).toList()
+        val isbnEntry = identifiers.firstOrNull {
+            it.groupValues[1].contains("ISBN", true) ||
+                it.groupValues[2].replace(Regex("<[^>]+>"), "").trim()
+                    .matches(Regex("(?:97[89][ -]?)?[0-9 -]{10,17}"))
+        }
+        meta.isbn = isbnEntry?.groupValues?.get(2)
+            ?.replace(Regex("<[^>]+>"), "")?.let(::unescapeXml)?.trim().orEmpty()
+
+        meta.author = Regex(
+            """<(?:dc:)?creator\\b[^>]*>(.*?)</(?:dc:)?creator>""",
+            RegexOption.DOT_MATCHES_ALL or RegexOption.IGNORE_CASE
+        ).findAll(opf).map { unescapeXml(it.groupValues[1].replace(Regex("<[^>]+>"), "").trim()) }
+            .filter { it.isNotBlank() }.joinToString(", ")
 
         val subjects = Regex(
             """<dc:subject\b[^>]*>(.*?)</dc:subject>""",
@@ -298,7 +311,7 @@ object BookFile {
         meta.series = series?.groupValues?.get(1)?.let(::unescapeXml).orEmpty()
 
         val seriesNumber = Regex(
-            """<meta\b[^>]*name=[""]calibre:series_index[""][^>]*content=[""]([^""]*)[""][^>]*/?>""",
+            """<meta\b[^>]*name=["']calibre:series_index["'][^>]*content=["']([^"']*)["'][^>]*/?>""",
             RegexOption.IGNORE_CASE
         ).find(opf)
         meta.seriesNumber = seriesNumber?.groupValues?.get(1).orEmpty()
@@ -390,11 +403,11 @@ object BookFile {
             """.trimIndent()
 
             opf = opf.replace(
-                Regex("""<meta\b[^>]*name=[""]calibre:series[""][^>]*/?>""", RegexOption.IGNORE_CASE),
+                Regex("""<meta\b[^>]*name=["']calibre:series["'][^>]*/?>""", RegexOption.IGNORE_CASE),
                 ""
             )
             opf = opf.replace(
-                Regex("""<meta\b[^>]*name=[""]calibre:series_index[""][^>]*/?>""", RegexOption.IGNORE_CASE),
+                Regex("""<meta\b[^>]*name=["']calibre:series_index["'][^>]*/?>""", RegexOption.IGNORE_CASE),
                 ""
             )
             opf = opf.replace("</metadata>", "$seriesXml</metadata>")
