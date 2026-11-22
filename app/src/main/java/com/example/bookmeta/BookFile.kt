@@ -46,9 +46,10 @@ object BookFile {
         val input = resolver.openInputStream(uri)?.use { it.readBytes() }
             ?: error("Не вдалося відкрити книгу")
 
-        val coverBytes = meta.coverUri.takeIf { it.isNotBlank() }?.let {
-            resolver.openInputStream(Uri.parse(it))?.use { stream -> stream.readBytes() }
-        } ?: meta.coverData
+        val selectedCover = meta.coverUri.takeIf { it.startsWith("content://") || it.startsWith("file://") }
+            ?.let { CoverManager.readAsJpegBytes(resolver, Uri.parse(it)) }
+        val coverBytes = selectedCover
+            ?: meta.coverData?.let { CoverManager.normalizeAsJpeg(it) }
 
         val output = when {
             name.endsWith(".fb2") -> writeFb2(input, meta, coverBytes)
