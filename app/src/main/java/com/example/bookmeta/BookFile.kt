@@ -3,6 +3,7 @@ package com.example.bookmeta
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayOutputStream
@@ -30,8 +31,17 @@ data class BookMeta(
 
 object BookFile {
 
+    private fun displayName(resolver: ContentResolver, uri: Uri): String {
+        val fromProvider = runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+        return fromProvider?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment.orEmpty()
+    }
+
     fun read(resolver: ContentResolver, uri: Uri): BookMeta {
-        val name = uri.lastPathSegment?.lowercase() ?: ""
+        val name = displayName(resolver, uri).lowercase()
         val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
             ?: error("Не вдалося відкрити файл")
 
@@ -43,7 +53,7 @@ object BookFile {
     }
 
     fun write(resolver: ContentResolver, uri: Uri, meta: BookMeta) {
-        val name = uri.lastPathSegment?.lowercase() ?: ""
+        val name = displayName(resolver, uri).lowercase()
         val input = resolver.openInputStream(uri)?.use { it.readBytes() }
             ?: error("Не вдалося відкрити книгу")
 
