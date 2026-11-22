@@ -265,7 +265,7 @@ private fun BookMetaScreen() {
             onClick = { coverPicker.launch(arrayOf("image/*")) },
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy
-        ) { Text(if (meta.coverUri.isBlank()) "Обрати обкладинку" else "Замінити обкладинку") }
+        ) { Text(if (meta.coverUri.isBlank() && meta.coverData == null) "Обрати обкладинку" else "Замінити обкладинку") }
         if (meta.coverUrl.isNotBlank()) {
             OutlinedButton(
                 onClick = {
@@ -549,4 +549,4 @@ private fun hasMetadataToApply(meta: BookMeta): Boolean =
         meta.title, meta.author, meta.description, meta.publisher, meta.year,
         meta.isbn, meta.language, meta.subjects, meta.series, meta.seriesNumber,
         meta.coverUri
-    ).any { it.isNotBlank() }
+    ).any { it.isNotBlank() } || meta.coverData != null
