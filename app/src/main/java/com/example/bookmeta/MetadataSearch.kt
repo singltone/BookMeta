@@ -31,7 +31,8 @@ object MetadataSearch {
         val encoded = URLEncoder.encode(searchTerm, "UTF-8")
 
         var attempt = 0
-        val body = while (true) {
+        var body = ""
+        while (true) {
             val wait = MIN_REQUEST_INTERVAL_MS - (System.currentTimeMillis() - lastRequestAt)
             if (wait > 0) Thread.sleep(wait)
 
@@ -56,7 +57,8 @@ object MetadataSearch {
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val responseBody = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 if (code !in 200..299) throw MetadataSearchException(code, "Google Books: HTTP $code")
-                break responseBody
+                body = responseBody
+                break
             } finally {
                 connection.disconnect()
             }
