@@ -1,16 +1,20 @@
 package com.example.bookmeta
 
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -189,8 +193,24 @@ private fun BookMetaScreen() {
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy
         ) { Text(if (meta.coverUri.isBlank()) "Обрати обкладинку" else "Замінити обкладинку") }
-        if (meta.coverUri.isNotBlank()) {
-            Text("Обкладинка вибрана: ${Uri.parse(meta.coverUri).lastPathSegment ?: "зображення"}")
+        val coverPreview = remember(meta.coverUri, meta.coverData) {
+            runCatching {
+                if (meta.coverUri.isNotBlank()) {
+                    CoverManager.createPreview(context.contentResolver, Uri.parse(meta.coverUri))
+                } else {
+                    meta.coverData?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                }
+            }.getOrNull()
+        }
+        if (coverPreview != null) {
+            Image(
+                bitmap = coverPreview.asImageBitmap(),
+                contentDescription = "Попередній перегляд обкладинки",
+                modifier = Modifier.heightIn(max = 220.dp).fillMaxWidth(),
+                contentScale = ContentScale.Fit
+            )
+        } else if (meta.coverUri.isBlank() && meta.coverData == null) {
+            Text("У файлі не знайдено вбудовану обкладинку.")
         }
 
         HorizontalDivider()
