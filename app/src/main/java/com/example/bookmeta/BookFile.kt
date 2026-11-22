@@ -184,9 +184,9 @@ object BookFile {
                 val first = parts.getOrElse(0) { "" }
                 val middle = if (parts.size > 2) parts[1] else ""
                 val last = if (parts.size > 2) parts[2] else parts.getOrElse(1) { "" }
-                "<author><first-name>\${xml(first)}</first-name>" +
-                    (if (middle.isBlank()) "" else "<middle-name>\${xml(middle)}</middle-name>") +
-                    (if (last.isBlank()) "" else "<last-name>\${xml(last)}</last-name>") + "</author>"
+                "<author><first-name>${xml(first)}</first-name>" +
+                    (if (middle.isBlank()) "" else "<middle-name>${xml(middle)}</middle-name>") +
+                    (if (last.isBlank()) "" else "<last-name>${xml(last)}</last-name>") + "</author>"
             }
         val authorRegex = Regex("<author\\b[^>]*>.*?</author>", RegexOption.DOT_MATCHES_ALL)
         titleInfo = if (authorRegex.containsMatchIn(titleInfo)) authorRegex.replace(titleInfo, authorNodes)
@@ -196,14 +196,14 @@ object BookFile {
         titleInfo = Regex("<genre\\b[^>]*>.*?</genre>", RegexOption.DOT_MATCHES_ALL).replace(titleInfo, "")
         if (meta.subjects.isNotBlank()) {
             val genres = meta.subjects.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                .joinToString("") { "<genre>\${xml(it)}</genre>" }
+                .joinToString("") { "<genre>${xml(it)}</genre>" }
             titleInfo = titleInfo.replace("</title-info>", "$genres</title-info>")
         }
         titleInfo = Regex("<sequence\\b[^>]*/>|<sequence\\b[^>]*>.*?</sequence>", RegexOption.DOT_MATCHES_ALL)
             .replace(titleInfo, "")
         if (meta.series.isNotBlank()) {
             val number = meta.seriesNumber.ifBlank { "1" }
-            val sequence = "<sequence name=\"\${xml(meta.series)}\" number=\"\${xml(number)}\"/>"
+            val sequence = "<sequence name=\"${xml(meta.series)}\" number=\"${xml(number)}\"/>"
             titleInfo = titleInfo.replace("</title-info>", "$sequence</title-info>")
         }
         xml = xml.replaceRange(titleMatch.range, titleInfo)
@@ -222,11 +222,11 @@ object BookFile {
         }
 
         if (meta.removeCover) {
-            val oldCoverId = Regex("""<coverpage\\b[^>]*>.*?<image\\b[^>]*(?:xlink:href|href)=["']#([^"']+)["']""", RegexOption.DOT_MATCHES_ALL)
+            val oldCoverId = Regex("""<coverpage\b[^>]*>.*?<image\b[^>]*(?:xlink:href|href)=["']#([^"']+)["']""", RegexOption.DOT_MATCHES_ALL)
                 .find(xml)?.groupValues?.get(1)
             xml = Regex("<coverpage\\b[^>]*>.*?</coverpage>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
             if (!oldCoverId.isNullOrBlank()) {
-                val binaryRegex = Regex("<binary\\b(?=[^>]*\\bid=[\\"']\${Regex.escape(oldCoverId)}[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL)
+                val binaryRegex = Regex("<binary\\b(?=[^>]*\\bid=[\\"']${Regex.escape(oldCoverId)}[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL)
                 xml = binaryRegex.replace(xml, "")
             }
             xml = Regex("<binary\\b(?=[^>]*\\bid=[\\"']bookmeta_cover[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
@@ -346,7 +346,7 @@ object BookFile {
     ): ByteArray {
         val entries = unzip(bytes)
         val container = entries["META-INF/container.xml"]?.toString(Charsets.UTF_8).orEmpty()
-        val declaredPath = Regex("""<rootfile\\b[^>]*full-path=["']([^"']+\\.opf)["']""", RegexOption.IGNORE_CASE)
+        val declaredPath = Regex("""<rootfile\b[^>]*full-path=["']([^"']+\.opf)["']""", RegexOption.IGNORE_CASE)
             .find(container)?.groupValues?.get(1)
         val opfPath = declaredPath?.takeIf { entries.containsKey(it) }
             ?: entries.keys.firstOrNull { it.endsWith(".opf", true) }
@@ -368,7 +368,7 @@ object BookFile {
             val regex = Regex("<(?:dc:)?$tag\\b[^>]*>.*?</(?:dc:)?$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
             opf = regex.replace(opf, "")
             val nodes = values.map { it.trim() }.filter { it.isNotBlank() }
-                .joinToString("") { "<dc:$tag>\${xml(it)}</dc:$tag>" }
+                .joinToString("") { "<dc:$tag>${xml(it)}</dc:$tag>" }
             if (nodes.isNotBlank()) opf = opf.replace("</metadata>", "$nodes</metadata>")
         }
         setDc("title", meta.title)
@@ -396,7 +396,7 @@ object BookFile {
 
         opf = Regex("<dc:subject\\b[^>]*>.*?</dc:subject>", RegexOption.DOT_MATCHES_ALL).replace(opf, "")
         val subjects = meta.subjects.split(",").map { it.trim() }.filter { it.isNotBlank() }
-            .joinToString("") { "<dc:subject>\${xml(it)}</dc:subject>" }
+            .joinToString("") { "<dc:subject>${xml(it)}</dc:subject>" }
         if (subjects.isNotBlank()) opf = opf.replace("</metadata>", "$subjects</metadata>")
 
         val metaTags = Regex("<meta\\b[^>]*(?:/>|>.*?</meta>)", RegexOption.DOT_MATCHES_ALL)
@@ -409,11 +409,11 @@ object BookFile {
         }
         if (meta.series.isNotBlank()) {
             val number = meta.seriesNumber.ifBlank { "1" }
-            val seriesXml = "<meta name=\"calibre:series\" content=\"\${xml(meta.series)}\"/>" +
-                "<meta name=\"calibre:series_index\" content=\"\${xml(number)}\"/>" +
-                "<meta property=\"belongs-to-collection\" id=\"bookmeta-series\">\${xml(meta.series)}</meta>" +
+            val seriesXml = "<meta name=\"calibre:series\" content=\"${xml(meta.series)}\"/>" +
+                "<meta name=\"calibre:series_index\" content=\"${xml(number)}\"/>" +
+                "<meta property=\"belongs-to-collection\" id=\"bookmeta-series\">${xml(meta.series)}</meta>" +
                 "<meta refines=\"#bookmeta-series\" property=\"collection-type\">series</meta>" +
-                "<meta refines=\"#bookmeta-series\" property=\"group-position\">\${xml(number)}</meta>"
+                "<meta refines=\"#bookmeta-series\" property=\"group-position\">${xml(number)}</meta>"
             opf = opf.replace("</metadata>", "$seriesXml</metadata>")
         }
 
@@ -422,14 +422,14 @@ object BookFile {
         val coverPath = if (opfDir.isBlank()) coverFile else "$opfDir/$coverFile"
         val coverId = "bookmeta-cover"
         if (meta.removeCover) {
-            val coverIds = Regex("""<meta\\b[^>]*name=["']cover["'][^>]*content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            val coverIds = Regex("""<meta\b[^>]*name=["']cover["'][^>]*content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
                 .findAll(opf).map { it.groupValues[1] }.toSet()
             opf = Regex("<meta\\b[^>]*name=[\\"']cover[\\"'][^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
             val removedPaths = mutableListOf<String>()
             opf = Regex("<item\\b[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf) { match ->
                 val item = match.value
-                val id = Regex("""\\bid=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
-                val href = Regex("""\\bhref=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
+                val id = Regex("""\bid=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
+                val href = Regex("""\bhref=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(item)?.groupValues?.get(1).orEmpty()
                 val coverItem = id == coverId || id in coverIds ||
                     Regex("""properties=["'][^"']*cover-image""", RegexOption.IGNORE_CASE).containsMatchIn(item)
                 if (coverItem) {
