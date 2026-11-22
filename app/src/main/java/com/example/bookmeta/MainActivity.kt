@@ -502,7 +502,13 @@ private fun BookMetaScreen() {
                         var updatedCount = 0
                         var noMetadataCount = 0
                         var failedCount = 0
+                        var rateLimitedCount = 0
+                        var stopForRateLimit = false
                         selected.forEach { item ->
+                            if (stopForRateLimit) {
+                                rateLimitedCount++
+                                return@forEach
+                            }
                             try {
                                 val found = withContext(Dispatchers.IO) {
                                     val current = BookFile.read(context.contentResolver, item.uri)
@@ -539,17 +545,27 @@ private fun BookMetaScreen() {
                                         if (moved) "Метадані не знайдено; переміщено до «Помилка»" else "Метадані не знайдено; не вдалося перемістити файл")
                                 } else updatedCount++
                             } catch (e: Exception) {
-                                val moved = withContext(Dispatchers.IO) {
-                                    val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
-                                    val file = root?.let { FolderScanner.scan(it, true).firstOrNull { doc -> doc.uri == item.uri } }
-                                    root != null && file != null && FailureFileManager.moveOrCopyToErrorFolder(context.contentResolver, root, file)
+                                if (e is MetadataSearchException && e.httpCode == 429) {
+                                    // A catalog rate limit is temporary: never move the user's book to Помилка.
+                                    stopForRateLimit = true
+                                    rateLimitedCount++
+                                    OperationLog.add(
+                                        context.filesDir, "Автопошук метаданих", item.name, false,
+                                        "Google Books HTTP 429; файл залишено на місці, пакет призупинено"
+                                    )
+                                } else {
+                                    val moved = withContext(Dispatchers.IO) {
+                                        val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
+                                        val file = root?.let { FolderScanner.scan(it, true).firstOrNull { doc -> doc.uri == item.uri } }
+                                        root != null && file != null && FailureFileManager.moveOrCopyToErrorFolder(context.contentResolver, root, file)
+                                    }
+                                    failedCount++
+                                    OperationLog.add(context.filesDir, "Автопошук метаданих", item.name, false, e.message.orEmpty())
                                 }
-                                failedCount++
-                                OperationLog.add(context.filesDir, "Автопошук метаданих", item.name, false, e.message.orEmpty())
                             }
                         }
                         recentLogs = OperationLog.recent(context.filesDir)
-                        status = "Автопошук завершено: оновлено $updatedCount; без метаданих переміщено: $noMetadataCount; інші помилки: $failedCount."
+                        status = "Автопошук завершено: оновлено $updatedCount; без метаданих переміщено: $noMetadataCount; інші помилки: $failedCount; відкладено через ліміт Google Books: $rateLimitedCount."
                         busy = false
                     }
                 }
