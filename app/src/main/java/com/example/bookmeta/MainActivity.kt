@@ -316,7 +316,7 @@ private fun BookMetaScreen() {
                 title = { Text("Витяг і сортування книг") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Книги копіюються з вихідної теки у підтеки EPUB і FB2. Оригінали залишаються на місці.")
+                        Text("Книги копіюються у підтеки EPUB і FB2. Файли з помилками переміщуються у «Помилка» у вихідній теці.")
                         OutlinedButton(onClick = { extractionSourcePicker.launch(null) }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
                             Text(if (extractionSource == null) "Вибрати вихідну теку" else "Вихідну теку вибрано ✓")
                         }
