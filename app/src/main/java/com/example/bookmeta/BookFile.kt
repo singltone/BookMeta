@@ -144,7 +144,7 @@ object BookFile {
             if (value.isBlank()) return
             val escaped = xml(value)
             val regex = Regex(
-                "(<$tag\b[^>]*>).*?(</$tag>)",
+                "(<$tag\\b[^>]*>).*?(</$tag>)",
                 RegexOption.DOT_MATCHES_ALL
             )
             val match = regex.find(xml)
