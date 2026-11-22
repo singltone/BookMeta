@@ -254,7 +254,7 @@ private fun BookMetaScreen() {
         }
 
         updateField("Назва", meta.title) { meta = meta.copy(title = it) }
-        updateField("Автори", meta.author) { meta = meta.copy(author = it) }
+        updateField("Автори (через кому)", meta.author) { meta = meta.copy(author = it) }
         updateField("ISBN", meta.isbn) { meta = meta.copy(isbn = it) }
         updateField("Анотація", meta.description) { meta = meta.copy(description = it) }
         updateField("Видавництво", meta.publisher) { meta = meta.copy(publisher = it) }
@@ -269,7 +269,7 @@ private fun BookMetaScreen() {
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy
         ) { Text(if (meta.coverUri.isBlank() && meta.coverData == null) "Обрати обкладинку" else "Замінити обкладинку") }
-        if (meta.coverUri.isNotBlank() || meta.coverData != null) {
+        if (!meta.removeCover && (meta.coverUri.isNotBlank() || meta.coverData != null)) {
             TextButton(
                 onClick = {
                     meta = meta.copy(coverUri = "", coverData = null, coverUrl = "", removeCover = true)
@@ -316,6 +316,8 @@ private fun BookMetaScreen() {
                 modifier = Modifier.heightIn(max = 220.dp).fillMaxWidth(),
                 contentScale = ContentScale.Fit
             )
+        } else if (meta.removeCover) {
+            Text("Обкладинку буде видалено після збереження.")
         } else if (meta.coverUri.isBlank() && meta.coverData == null) {
             Text("У файлі не знайдено вбудовану обкладинку.")
         }
