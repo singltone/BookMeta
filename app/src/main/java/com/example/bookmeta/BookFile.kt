@@ -34,7 +34,8 @@ object BookFile {
 
         return when {
             name.endsWith(".fb2") -> readFb2(bytes)
-            else -> readEpub(bytes)
+            name.endsWith(".epub") -> readEpub(bytes)
+            else -> error("Підтримуються лише файли EPUB і FB2")
         }
     }
 
@@ -49,7 +50,8 @@ object BookFile {
 
         val output = when {
             name.endsWith(".fb2") -> writeFb2(input, meta, coverBytes)
-            else -> writeEpub(input, meta, coverBytes)
+            name.endsWith(".epub") -> writeEpub(input, meta, coverBytes)
+            else -> error("Підтримуються лише файли EPUB і FB2")
         }
 
         resolver.openOutputStream(uri, "wt")?.use {
