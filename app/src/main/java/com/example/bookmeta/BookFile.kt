@@ -253,10 +253,10 @@ object BookFile {
                 .find(xml)?.groupValues?.get(1)
             xml = Regex("<coverpage\\b[^>]*>.*?</coverpage>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
             if (!oldCoverId.isNullOrBlank()) {
-                val binaryRegex = Regex("<binary\\b(?=[^>]*\\bid=[\\"']${Regex.escape(oldCoverId)}[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL)
+                val binaryRegex = Regex("""<binary\b(?=[^>]*\bid=["']${Regex.escape(oldCoverId)}["'])[^>]*>.*?</binary>""", RegexOption.DOT_MATCHES_ALL)
                 xml = binaryRegex.replace(xml, "")
             }
-            xml = Regex("<binary\\b(?=[^>]*\\bid=[\\"']bookmeta_cover[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
+            xml = Regex("""<binary\b(?=[^>]*\bid=["']bookmeta_cover["'])[^>]*>.*?</binary>""", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
         } else if (coverBytes != null) {
             val id = "bookmeta_cover"
             val encoded = Base64.getEncoder().encodeToString(coverBytes)
@@ -265,7 +265,7 @@ object BookFile {
             val coverRegex = Regex("<coverpage\\b[^>]*>.*?</coverpage>", RegexOption.DOT_MATCHES_ALL)
             xml = if (coverRegex.containsMatchIn(xml)) coverRegex.replaceFirst(xml, coverpage)
                 else xml.replaceFirst("</title-info>", "$coverpage</title-info>")
-            xml = Regex("<binary\\b(?=[^>]*\\bid=[\\"']$id[\\"'])[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
+            xml = Regex("""<binary\b(?=[^>]*\bid=["']$id["'])[^>]*>.*?</binary>""", RegexOption.DOT_MATCHES_ALL).replace(xml, "")
             xml = xml.replace("</FictionBook>", "$binary</FictionBook>")
         }
         return xml.toByteArray(Charsets.UTF_8)
@@ -451,7 +451,7 @@ object BookFile {
         if (meta.removeCover) {
             val coverIds = Regex("""<meta\b[^>]*name=["']cover["'][^>]*content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
                 .findAll(opf).map { it.groupValues[1] }.toSet()
-            opf = Regex("<meta\\b[^>]*name=[\\"']cover[\\"'][^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
+            opf = Regex("""<meta\b[^>]*name=["']cover["'][^>]*/?>""", RegexOption.IGNORE_CASE).replace(opf, "")
             val removedPaths = mutableListOf<String>()
             opf = Regex("<item\\b[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf) { match ->
                 val item = match.value
@@ -468,12 +468,12 @@ object BookFile {
             entries.remove(coverPath)
         } else if (coverBytes != null) {
             entries[coverPath] = coverBytes
-            opf = Regex("<item\\b(?=[^>]*id=[\\"']$coverId[\\"'])[^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
+            opf = Regex("""<item\b(?=[^>]*id=["']$coverId["'])[^>]*/?>""", RegexOption.IGNORE_CASE).replace(opf, "")
             val manifestClose = opf.indexOf("</manifest>")
             if (manifestClose < 0) error("EPUB: блок manifest не знайдено")
             val item = """<item id="$coverId" href="$coverFile" media-type="image/jpeg" properties="cover-image"/>"""
             opf = opf.substring(0, manifestClose) + item + opf.substring(manifestClose)
-            opf = Regex("<meta\\b[^>]*name=[\\"']cover[\\"'][^>]*/?>", RegexOption.IGNORE_CASE).replace(opf, "")
+            opf = Regex("""<meta\b[^>]*name=["']cover["'][^>]*/?>""", RegexOption.IGNORE_CASE).replace(opf, "")
             opf = opf.replace("</metadata>", """<meta name="cover" content="$coverId"/></metadata>""")
         }
         entries[opfPath] = opf.toByteArray(Charsets.UTF_8)
