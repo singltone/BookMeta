@@ -57,6 +57,11 @@ private fun BookMetaScreen() {
     var recentLogs by remember { mutableStateOf(OperationLog.recent(context.filesDir)) }
     var backups by remember { mutableStateOf(emptyList<File>()) }
     var restoreCandidate by remember { mutableStateOf<File?>(null) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showExtractor by remember { mutableStateOf(false) }
+    var extractionSource by remember { mutableStateOf<Uri?>(null) }
+    var extractionDestination by remember { mutableStateOf<Uri?>(null) }
+    var extractionRecursive by remember { mutableStateOf(true) }
 
     val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
         if (picked != null) {
@@ -92,6 +97,25 @@ private fun BookMetaScreen() {
             )
             meta = meta.copy(coverUri = picked.toString())
             status = "Обкладинку вибрано. Вона буде вбудована під час збереження."
+        }
+    }
+
+    val extractionSourcePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { picked ->
+        if (picked != null) {
+            context.contentResolver.takePersistableUriPermission(
+                picked,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            extractionSource = picked
+        }
+    }
+    val extractionDestinationPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { picked ->
+        if (picked != null) {
+            context.contentResolver.takePersistableUriPermission(
+                picked,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            extractionDestination = picked
         }
     }
 
@@ -140,7 +164,22 @@ private fun BookMetaScreen() {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("BookMeta", style = MaterialTheme.typography.headlineLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("BookMeta", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
+            Box {
+                TextButton(onClick = { menuExpanded = true }, enabled = !busy) { Text("☰") }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Редактор метаданих") },
+                        onClick = { menuExpanded = false; showExtractor = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Витяг і сортування книг") },
+                        onClick = { menuExpanded = false; showExtractor = true }
+                    )
+                }
+            }
+        }
         Text(status, style = MaterialTheme.typography.bodyMedium)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 
@@ -227,6 +266,27 @@ private fun BookMetaScreen() {
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy
         ) { Text(if (meta.coverUri.isBlank()) "Обрати обкладинку" else "Замінити обкладинку") }
+        if (meta.coverUrl.isNotBlank()) {
+            OutlinedButton(
+                onClick = {
+                    val url = meta.coverUrl
+                    scope.launch {
+                        busy = true
+                        status = "Завантажую обкладинку…"
+                        try {
+                            val bytes = withContext(Dispatchers.IO) { CoverManager.downloadAsJpeg(url) }
+                                ?: error("Сервер не повернув коректне зображення")
+                            meta = meta.copy(coverUri = "", coverData = bytes)
+                            status = "Обкладинку завантажено. Вона буде вбудована у книгу під час збереження."
+                        } catch (e: Exception) {
+                            status = "Не вдалося завантажити обкладинку: ${e.message}"
+                        } finally { busy = false }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy
+            ) { Text("Завантажити обкладинку з Google Books") }
+        }
         val coverPreview = remember(meta.coverUri, meta.coverData) {
             runCatching {
                 if (meta.coverUri.isNotBlank()) {
@@ -245,6 +305,56 @@ private fun BookMetaScreen() {
             )
         } else if (meta.coverUri.isBlank() && meta.coverData == null) {
             Text("У файлі не знайдено вбудовану обкладинку.")
+        }
+
+        if (showExtractor) {
+            AlertDialog(
+                onDismissRequest = { if (!busy) showExtractor = false },
+                title = { Text("Витяг і сортування книг") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Книги копіюються з вихідної теки у підтеки EPUB і FB2. Оригінали залишаються на місці.")
+                        OutlinedButton(onClick = { extractionSourcePicker.launch(null) }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
+                            Text(if (extractionSource == null) "Вибрати вихідну теку" else "Вихідну теку вибрано ✓")
+                        }
+                        OutlinedButton(onClick = { extractionDestinationPicker.launch(null) }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
+                            Text(if (extractionDestination == null) "Вибрати теку призначення" else "Теку призначення вибрано ✓")
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = extractionRecursive, onCheckedChange = { extractionRecursive = it }, enabled = !busy)
+                            Text("Шукати також у підтеках")
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !busy && extractionSource != null && extractionDestination != null,
+                        onClick = {
+                            val sourceUri = extractionSource ?: return@TextButton
+                            val destinationUri = extractionDestination ?: return@TextButton
+                            scope.launch {
+                                busy = true
+                                status = "Витягую та сортую книги…"
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        val source = DocumentFile.fromTreeUri(context, sourceUri) ?: error("Не вдалося відкрити вихідну теку")
+                                        val destination = DocumentFile.fromTreeUri(context, destinationUri) ?: error("Не вдалося відкрити теку призначення")
+                                        BookExtractor.extract(context.contentResolver, source, destination, extractionRecursive)
+                                    }
+                                    OperationLog.add(context.filesDir, "Витяг книг", "Папка", true, "Скопійовано: ${result.copied}; EPUB: ${result.epub}; FB2: ${result.fb2}; помилок: ${result.failed}")
+                                    recentLogs = OperationLog.recent(context.filesDir)
+                                    status = "Готово: ${result.copied} книг (EPUB: ${result.epub}, FB2: ${result.fb2}), помилок: ${result.failed}."
+                                    if (result.errors.isNotEmpty()) status += " " + result.errors.take(3).joinToString("; ")
+                                    showExtractor = false
+                                } catch (e: Exception) {
+                                    status = "Помилка витягу: ${e.message}"
+                                } finally { busy = false }
+                            }
+                        }
+                    ) { Text("Почати витяг") }
+                },
+                dismissButton = { TextButton(onClick = { showExtractor = false }, enabled = !busy) { Text("Закрити") } }
+            )
         }
 
         HorizontalDivider()
