@@ -198,14 +198,13 @@ object BookFile {
                     val partRegex = Regex("(<$tag\\b[^>]*>).*?(</$tag>)", RegexOption.DOT_MATCHES_ALL)
                     val partMatch = partRegex.find(authorXml)
                     if (value.isBlank()) {
-                        if (partMatch != null) authorXml = authorRegexFor(tag).replace(authorXml, "")
+                        if (partMatch != null) authorXml = Regex("<$tag\\b[^>]*>.*?</$tag>", RegexOption.DOT_MATCHES_ALL).replace(authorXml, "")
                     } else if (partMatch != null) {
                         authorXml = authorXml.replaceRange(partMatch.range, partMatch.groupValues[1] + xml(value) + partMatch.groupValues[2])
                     } else {
                         authorXml = authorXml.replace("</author>", "<$tag>${xml(value)}</$tag></author>")
                     }
                 }
-                fun authorRegexFor(tag: String) = Regex("<$tag\\b[^>]*>.*?</$tag>", RegexOption.DOT_MATCHES_ALL)
                 setPart("first-name", first)
                 setPart("middle-name", middle)
                 setPart("last-name", last)
