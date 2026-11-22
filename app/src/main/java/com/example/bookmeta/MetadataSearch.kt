@@ -68,7 +68,7 @@ object MetadataSearch {
                     ?: items.optJSONObject(index)?.optJSONObject("seriesInfo")
                 var series = seriesInfo?.optString("name").orEmpty().takeUnless { it == "null" }.orEmpty()
                 if (series.isBlank()) series = info.optString("series").takeUnless { it == "null" }.orEmpty()
-                val seriesNumber = listOf("bookDisplayNumber", "volumeNumber", "seriesNumber", "seriesIndex")
+                var seriesNumber = listOf("bookDisplayNumber", "volumeNumber", "seriesNumber", "seriesIndex")
                     .firstNotNullOfOrNull { key ->
                         seriesInfo?.optString(key)?.takeIf { it.isNotBlank() && it != "null" }
                             ?: info.optString(key).takeIf { it.isNotBlank() && it != "null" }
@@ -76,7 +76,10 @@ object MetadataSearch {
                 if (series.isBlank()) {
                     val seriesMatch = Regex("""(?:сер(?:ія|ии)|series)\s*[:—-]\s*([^\[\]()]+?)(?:\s*[,;:]?\s*(?:кн\.?|книга|book|том|vol\.?|volume)\s*#?\s*(\d+(?:[.,]\d+)?))?$""", RegexOption.IGNORE_CASE)
                         .find(listOf(title, info.optString("subtitle"), info.optString("description")).joinToString(" "))
-                    if (seriesMatch != null) series = seriesMatch.groupValues[1].trim()
+                    if (seriesMatch != null) {
+                        series = seriesMatch.groupValues[1].trim()
+                        if (seriesNumber.isBlank()) seriesNumber = seriesMatch.groupValues[2]
+                    }
                 }
 
                 BookMeta(
