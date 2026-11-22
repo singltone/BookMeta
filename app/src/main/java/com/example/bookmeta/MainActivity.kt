@@ -310,6 +310,40 @@ private fun BookMetaScreen() {
             Text("У файлі не знайдено вбудовану обкладинку.")
         }
 
+        Button(
+            enabled = bookUri != null && !busy,
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                val selectedUri = bookUri ?: return@Button
+                val selectedName = bookName
+                val updated = meta.copy()
+                scope.launch {
+                    busy = true
+                    try {
+                        val backup = withContext(Dispatchers.IO) {
+                            val file = BackupManager.backup(
+                                context.contentResolver, selectedUri,
+                                File(context.filesDir, "backups"), selectedName
+                            )
+                            BookFile.write(context.contentResolver, selectedUri, updated)
+                            OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}")
+                            file
+                        }
+                        original = updated.copy()
+                        backups = BackupManager.list(File(context.filesDir, "backups"), selectedName)
+                        recentLogs = OperationLog.recent(context.filesDir)
+                        status = "Збережено. Резервна копія: ${backup.name}"
+                    } catch (e: Exception) {
+                        OperationLog.add(context.filesDir, "Збереження", selectedName, false, e.message.orEmpty())
+                        recentLogs = OperationLog.recent(context.filesDir)
+                        status = "Помилка запису: ${e.message}"
+                    } finally {
+                        busy = false
+                    }
+                }
+            }
+        ) { Text("Зберегти зміни в книзі") }
+
         if (showExtractor) {
             AlertDialog(
                 onDismissRequest = { if (!busy) showExtractor = false },
@@ -515,39 +549,7 @@ private fun BookMetaScreen() {
             Text("ISBN: ${original.isbn} → ${meta.isbn}")
         }
 
-        Button(
-            enabled = bookUri != null && !busy,
-            modifier = Modifier.fillMaxWidth(),
-            onClick = {
-                val selectedUri = bookUri ?: return@Button
-                val selectedName = bookName
-                val updated = meta.copy()
-                scope.launch {
-                    busy = true
-                    try {
-                        val backup = withContext(Dispatchers.IO) {
-                            val file = BackupManager.backup(
-                                context.contentResolver, selectedUri,
-                                File(context.filesDir, "backups"), selectedName
-                            )
-                            BookFile.write(context.contentResolver, selectedUri, updated)
-                            OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}")
-                            file
-                        }
-                        original = updated.copy()
-                        backups = BackupManager.list(File(context.filesDir, "backups"), selectedName)
-                        recentLogs = OperationLog.recent(context.filesDir)
-                        status = "Збережено. Резервна копія: ${backup.name}"
-                    } catch (e: Exception) {
-                        OperationLog.add(context.filesDir, "Збереження", selectedName, false, e.message.orEmpty())
-                        recentLogs = OperationLog.recent(context.filesDir)
-                        status = "Помилка запису: ${e.message}"
-                    } finally {
-                        busy = false
-                    }
-                }
-            }
-        ) { Text("Зберегти книгу") }
+
 
         HorizontalDivider()
         Text("Резервні копії та історія", style = MaterialTheme.typography.titleLarge)
