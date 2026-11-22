@@ -65,7 +65,7 @@ private fun BookMetaScreen() {
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
                     android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
-            bookName = picked.lastPathSegment ?: "Книга"
+            bookName = DocumentFile.fromSingleUri(context, picked)?.name ?: picked.lastPathSegment ?: "Книга"
             backups = BackupManager.list(File(context.filesDir, "backups"), bookName)
             scope.launch {
                 busy = true
@@ -375,6 +375,9 @@ private fun BookMetaScreen() {
                                         BackupManager.restore(context.contentResolver, target, candidate)
                                         OperationLog.add(context.filesDir, "Відновлення", bookName, true, "Перед відновленням збережено: ${safetyCopy.name}")
                                     }
+                                    val restored = withContext(Dispatchers.IO) { BookFile.read(context.contentResolver, target) }
+                                    meta = restored
+                                    original = restored.copy()
                                     backups = BackupManager.list(File(context.filesDir, "backups"), bookName)
                                     recentLogs = OperationLog.recent(context.filesDir)
                                     status = "Резервну копію відновлено."
