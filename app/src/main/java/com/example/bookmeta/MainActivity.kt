@@ -67,12 +67,18 @@ private fun BookMetaScreen() {
 
     val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
         if (picked != null) {
-            bookUri = picked
-            context.contentResolver.takePersistableUriPermission(
-                picked,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
+            // Disable saving until the newly selected book has actually loaded.
+            bookUri = null
+            meta = BookMeta()
+            original = BookMeta()
+            searchResults = emptyList()
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    picked,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            }
             bookName = DocumentFile.fromSingleUri(context, picked)?.name ?: picked.lastPathSegment ?: "Книга"
             backups = BackupManager.list(File(context.filesDir, "backups"), bookName)
             scope.launch {
@@ -81,8 +87,10 @@ private fun BookMetaScreen() {
                     val loaded = withContext(Dispatchers.IO) { BookFile.read(context.contentResolver, picked) }
                     meta = loaded
                     original = loaded.copy()
+                    bookUri = picked
                     status = "Книгу завантажено"
                 } catch (e: Exception) {
+                    bookUri = null
                     status = "Помилка відкриття: ${e.message}"
                 } finally {
                     busy = false
