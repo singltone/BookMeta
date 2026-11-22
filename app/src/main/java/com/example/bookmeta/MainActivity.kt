@@ -315,7 +315,7 @@ private fun BookMetaScreen() {
                 }
             }.getOrNull()
         }
-        if (coverPreview != null) {
+        if (coverPreview != null && !meta.removeCover) {
             Image(
                 bitmap = coverPreview.asImageBitmap(),
                 contentDescription = "Попередній перегляд обкладинки",
