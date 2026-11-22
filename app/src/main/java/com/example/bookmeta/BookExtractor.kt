@@ -47,7 +47,7 @@ object BookExtractor {
                         .substringBefore(',')
                         .trim()
                         .ifBlank { "Невідомий автор" }
-                        .replace(Regex("[\\\\/:*?\\"<>|]"), "_")
+                        .replace(Regex("""[\\/:*?"<>|]"""), "_")
                     formatFolder.findFile(author)?.takeIf { it.isDirectory }
                         ?: formatFolder.createDirectory(author)
                         ?: error("Не вдалося створити теку автора: $author")
