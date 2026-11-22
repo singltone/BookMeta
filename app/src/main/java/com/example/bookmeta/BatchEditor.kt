@@ -9,7 +9,8 @@ object BatchEditor {
             description=choose(target.description,source.description), publisher=choose(target.publisher,source.publisher),
             year=choose(target.year,source.year), isbn=choose(target.isbn,source.isbn), language=choose(target.language,source.language),
             subjects=choose(target.subjects,source.subjects), series=choose(target.series,source.series),
-            seriesNumber=choose(target.seriesNumber,source.seriesNumber), coverUri=choose(target.coverUri,source.coverUri)
+            seriesNumber=choose(target.seriesNumber,source.seriesNumber), coverUri=choose(target.coverUri,source.coverUri),
+            coverData=source.coverData ?: target.coverData
         )
     }
 }
