@@ -353,10 +353,6 @@ object BookFile {
         val metaTagsForRead = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opf).map { it.value }.toList()
         val calibreSeriesTag = metaTagsForRead.firstOrNull { attribute(it, "name").equals("calibre:series", true) }
         val calibreSeriesNumberTag = metaTagsForRead.firstOrNull { attribute(it, "name").equals("calibre:series_index", true) }
-        val series = Regex(
-            """<meta\b[^>]*name=["']calibre:series["'][^>]*/?>""",
-            RegexOption.IGNORE_CASE
-        ).find(opf)
         meta.series = calibreSeriesTag?.let { attribute(it, "content") }?.let(::unescapeXml).orEmpty()
 
         meta.seriesNumber = calibreSeriesNumberTag?.let { attribute(it, "content") }.orEmpty()
@@ -366,7 +362,7 @@ object BookFile {
             meta.series = collection?.groupValues?.get(1)?.let(::unescapeXml)?.trim().orEmpty()
             val position = Regex("""<meta\b(?=[^>]*property=["']group-position["'])[^>]*>(.*?)</meta>""",
                 setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(opf)
-            if (meta.seriesNumber.isBlank()) meta.seriesNumber = position?.groupValues?.get(1)?.trim().orEmpty()
+            if (meta.seriesNumber.isBlank()) meta.seriesNumber = position?.groupValues?.get(1)?.let(::unescapeXml)?.trim().orEmpty()
         }
 
         // EPUB cover can be declared by EPUB 2 metadata or EPUB 3 manifest properties.
