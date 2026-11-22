@@ -59,6 +59,9 @@ object MetadataSearch {
                     .filter { it.isNotBlank() }
                     .joinToString(", ")
                 val published = info.optString("publishedDate").takeUnless { it == "null" }.orEmpty()
+                val coverUrl = info.optJSONObject("imageLinks")?.optString("thumbnail")
+                    ?.takeUnless { it.isNullOrBlank() || it == "null" }
+                    ?.replace("http://", "https://")?.replace("&amp;", "&").orEmpty()
 
                 BookMeta(
                     title = title,
@@ -68,9 +71,8 @@ object MetadataSearch {
                     year = Regex("\\d{4}").find(published)?.value.orEmpty(),
                     isbn = foundIsbn,
                     language = info.optString("language").takeUnless { it == "null" }.orEmpty(),
-                    subjects = subjects
-                    // Remote thumbnail URLs are intentionally not stored as coverUri:
-                    // coverUri is a content URI used by the file writer.
+                    subjects = subjects,
+                    coverUrl = coverUrl
                 )
             }
         } finally {
