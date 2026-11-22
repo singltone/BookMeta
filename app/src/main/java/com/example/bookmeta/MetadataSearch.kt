@@ -63,6 +63,22 @@ object MetadataSearch {
                     ?.takeUnless { it.isNullOrBlank() || it == "null" }
                     ?.replace("http://", "https://")?.replace("&amp;", "&").orEmpty()
 
+                // Series fields are inconsistently exposed by catalog APIs.
+                val seriesInfo = info.optJSONObject("seriesInfo")
+                    ?: items.optJSONObject(index)?.optJSONObject("seriesInfo")
+                var series = seriesInfo?.optString("name").orEmpty().takeUnless { it == "null" }.orEmpty()
+                if (series.isBlank()) series = info.optString("series").takeUnless { it == "null" }.orEmpty()
+                val seriesNumber = listOf("bookDisplayNumber", "volumeNumber", "seriesNumber", "seriesIndex")
+                    .firstNotNullOfOrNull { key ->
+                        seriesInfo?.optString(key)?.takeIf { it.isNotBlank() && it != "null" }
+                            ?: info.optString(key).takeIf { it.isNotBlank() && it != "null" }
+                    }.orEmpty()
+                if (series.isBlank()) {
+                    val seriesMatch = Regex("""(?:сер(?:ія|ии)|series)\s*[:—-]\s*([^\[\]()]+?)(?:\s*[,;:]?\s*(?:кн\.?|книга|book|том|vol\.?|volume)\s*#?\s*(\d+(?:[.,]\d+)?))?$""", RegexOption.IGNORE_CASE)
+                        .find(listOf(title, info.optString("subtitle"), info.optString("description")).joinToString(" "))
+                    if (seriesMatch != null) series = seriesMatch.groupValues[1].trim()
+                }
+
                 BookMeta(
                     title = title,
                     author = authors,
@@ -72,6 +88,8 @@ object MetadataSearch {
                     isbn = foundIsbn,
                     language = info.optString("language").takeUnless { it == "null" }.orEmpty(),
                     subjects = subjects,
+                    series = series,
+                    seriesNumber = seriesNumber,
                     coverUrl = coverUrl
                 )
             }
