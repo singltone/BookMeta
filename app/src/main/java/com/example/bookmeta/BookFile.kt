@@ -358,15 +358,16 @@ object BookFile {
         }
 
         // EPUB cover can be declared by EPUB 2 metadata or EPUB 3 manifest properties.
-        val coverId = Regex("""<meta\b[^>]*name=["']cover["'][^>]*content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-            .find(opf)?.groupValues?.get(1)
-        val coverItem = if (!coverId.isNullOrBlank()) {
-            Regex("""<item\b(?=[^>]*id=["']${Regex.escape(coverId)}["'])[^>]*href=["']([^"']+)["'][^>]*/?>""", RegexOption.IGNORE_CASE)
-                .find(opf)
-        } else null
-        val epub3Cover = Regex("""<item\b(?=[^>]*properties=["'][^"']*cover-image)[^>]*href=["']([^"']+)["'][^>]*/?>""", RegexOption.IGNORE_CASE)
-            .find(opf)
-        val coverHref = coverItem?.groupValues?.get(1) ?: epub3Cover?.groupValues?.get(1)
+        fun attribute(tag: String, name: String): String? =
+            Regex("""\\b${Regex.escape(name)}=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                .find(tag)?.groupValues?.get(1)
+        val metaTags = Regex("""<meta\\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opf)
+        val coverMeta = metaTags.firstOrNull { attribute(it.value, "name").equals("cover", true) }
+        val coverId = coverMeta?.value?.let { attribute(it, "content") }
+        val items = Regex("""<item\\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opf).map { it.value }.toList()
+        val coverItem = items.firstOrNull { !coverId.isNullOrBlank() && attribute(it, "id") == coverId }
+        val epub3Cover = items.firstOrNull { attribute(it, "properties")?.split(Regex("\\s+"))?.contains("cover-image") == true }
+        val coverHref = coverItem?.let { attribute(it, "href") } ?: epub3Cover?.let { attribute(it, "href") }
         if (!coverHref.isNullOrBlank()) {
             val opfDir = opfPath.substringBeforeLast('/', "")
             val coverPath = normalizeZipPath(if (opfDir.isBlank()) coverHref else "$opfDir/$coverHref")
