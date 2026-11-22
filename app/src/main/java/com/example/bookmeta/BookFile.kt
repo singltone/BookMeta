@@ -234,7 +234,7 @@ object BookFile {
             val extension = "jpg"
             val id = "bookmeta_cover"
             val encoded = Base64.getEncoder().encodeToString(coverBytes)
-            val binary = """<binary id="$id" content-type="image/$extension">$encoded</binary>"""
+            val binary = """<binary id="$id" content-type="image/jpeg">$encoded</binary>"""
 
             val coverpage = """<coverpage><image href="#$id" xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#$id"/></coverpage>"""
 
