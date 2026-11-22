@@ -39,13 +39,21 @@ object BookExtractor {
                 val targetFolder = if (extension == "epub") epubFolder else fb2Folder
                 val mime = if (extension == "epub") "application/epub+zip" else "application/x-fictionbook+xml"
                 val base = name.substringBeforeLast('.', name)
+                // Keep the first copy in the format folder. Put same-name books
+                // into a subfolder named after the book instead of cluttering the root.
+                val existing = targetFolder.findFile(name)
+                val actualFolder = if (existing != null) {
+                    findOrCreateDuplicateFolder(targetFolder, base)
+                } else {
+                    targetFolder
+                }
                 var candidate = name
                 var suffix = 2
-                while (targetFolder.findFile(candidate) != null) {
+                while (actualFolder.findFile(candidate) != null) {
                     candidate = "${base} (${suffix}).${extension}"
                     suffix++
                 }
-                val output = targetFolder.createFile(mime, candidate)
+                val output = actualFolder.createFile(mime, candidate)
                     ?: error("Не вдалося створити файл призначення")
                 try {
                     resolver.openInputStream(input.uri)?.use { sourceStream ->
@@ -64,5 +72,20 @@ object BookExtractor {
             }
         }
         return ExtractionResult(copied, errors.size, epub, fb2, errors.take(10))
+    }
+
+    private fun findOrCreateDuplicateFolder(parent: DocumentFile, bookName: String): DocumentFile {
+        var folderName = bookName.ifBlank { "Без назви" }
+        var suffix = 2
+        while (true) {
+            val existing = parent.findFile(folderName)
+            if (existing == null) {
+                return parent.createDirectory(folderName)
+                    ?: error("Не вдалося створити теку дублікатів: $folderName")
+            }
+            if (existing.isDirectory) return existing
+            folderName = "$bookName (дублікати ${suffix})"
+            suffix++
+        }
     }
 }
