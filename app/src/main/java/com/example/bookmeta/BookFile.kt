@@ -75,7 +75,7 @@ object BookFile {
 
         // Validate generated XML/archive before touching the original document.
         val check = if (isFb2) readFb2(output) else readEpub(output)
-        fun comparable(value: String) = value.trim().replace(Regex("\\s+"), " ")
+        fun comparable(value: String) = value.trim().replace(Regex("\\s+"), " ").replace(Regex("\\s*,\\s*"), ", ")
         val mismatches = listOf(
             "назва" to (meta.title to check.title),
             "автор" to (meta.author to check.author),
