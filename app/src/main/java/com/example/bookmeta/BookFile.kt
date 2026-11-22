@@ -144,7 +144,7 @@ object BookFile {
             if (value.isBlank()) return
             val escaped = xml(value)
             val regex = Regex(
-                "(<$tag\\b[^>]*>).*?(</$tag>)",
+                "(<$tag\b[^>]*>).*?(</$tag>)",
                 RegexOption.DOT_MATCHES_ALL
             )
             val match = regex.find(xml)
@@ -163,15 +163,15 @@ object BookFile {
         if (meta.author.isNotBlank()) {
             val parts = meta.author.trim().split(Regex("\\s+"), limit = 3)
             val first = parts.getOrElse(0) { "" }
-            val last = parts.getOrElse(1) { "" }
-            val middle = parts.getOrElse(2) { "" }
-            val authorRegex = Regex("""<author\\b[^>]*>.*?</author>""", RegexOption.DOT_MATCHES_ALL)
+            val middle = if (parts.size > 2) parts[1] else ""
+            val last = if (parts.size > 2) parts[2] else parts.getOrElse(1) { "" }
+            val authorRegex = Regex("""<author\b[^>]*>.*?</author>""", RegexOption.DOT_MATCHES_ALL)
             val authorMatch = authorRegex.find(xml)
             if (authorMatch != null) {
                 var authorXml = authorMatch.value
                 fun setAuthorPart(tag: String, value: String) {
                     if (value.isBlank()) return
-                    val partRegex = Regex("""(<$tag\\b[^>]*>).*?(</$tag>)""", RegexOption.DOT_MATCHES_ALL)
+                    val partRegex = Regex("""(<$tag\b[^>]*>).*?(</$tag>)""", RegexOption.DOT_MATCHES_ALL)
                     val partMatch = partRegex.find(authorXml)
                     if (partMatch != null) {
                         authorXml = authorXml.replaceRange(
@@ -386,7 +386,7 @@ object BookFile {
                 val manifestEnd = opf.indexOf("</manifest>", manifestStart.range.last)
                 if (manifestEnd >= 0) {
                     // Remove an older BookMeta cover entry before adding the replacement.
-                    val oldItem = Regex("""<item\\b(?=[^>]*id=["']bookmeta-cover["'])[^>]*/?>""", RegexOption.IGNORE_CASE)
+                    val oldItem = Regex("""<item\b(?=[^>]*id=["']bookmeta-cover["'])[^>]*/?>""", RegexOption.IGNORE_CASE)
                     opf = oldItem.replace(opf, "")
                     val refreshedManifestEnd = opf.indexOf("</manifest>", manifestStart.range.first)
                     if (refreshedManifestEnd >= 0) {
