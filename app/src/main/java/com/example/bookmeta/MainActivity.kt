@@ -352,8 +352,8 @@ private fun BookMetaScreen() {
                                     updated.seriesNumber to verified.seriesNumber,
                                     updated.description to verified.description
                                 ).all { (expected, actual) ->
-                                    expected.trim().replace(Regex("\\s+"), " ") ==
-                                        actual.trim().replace(Regex("\\s+"), " ")
+                                    expected.trim().replace(Regex("\\s+"), " ").replace(Regex("\\s*,\\s*"), ", ") ==
+                                        actual.trim().replace(Regex("\\s+"), " ").replace(Regex("\\s*,\\s*"), ", ")
                                 }
                                 if (!fieldsOk) error("Повторна перевірка після запису виявила розбіжності.")
                                 OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}; повторне читання успішне")
