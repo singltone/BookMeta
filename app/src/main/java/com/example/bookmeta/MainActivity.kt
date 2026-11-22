@@ -97,7 +97,7 @@ private fun BookMetaScreen() {
                 picked,
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
-            meta = meta.copy(coverUri = picked.toString())
+            meta = meta.copy(coverUri = picked.toString(), removeCover = false)
             status = "Обкладинку вибрано. Вона буде вбудована під час збереження."
         }
     }
@@ -269,6 +269,16 @@ private fun BookMetaScreen() {
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy
         ) { Text(if (meta.coverUri.isBlank() && meta.coverData == null) "Обрати обкладинку" else "Замінити обкладинку") }
+        if (meta.coverUri.isNotBlank() || meta.coverData != null) {
+            TextButton(
+                onClick = {
+                    meta = meta.copy(coverUri = "", coverData = null, coverUrl = "", removeCover = true)
+                    status = "Обкладинку буде видалено під час збереження."
+                },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Видалити обкладинку") }
+        }
         if (meta.coverUrl.isNotBlank()) {
             OutlinedButton(
                 onClick = {
@@ -279,7 +289,7 @@ private fun BookMetaScreen() {
                         try {
                             val bytes = withContext(Dispatchers.IO) { CoverManager.downloadAsJpeg(url) }
                                 ?: error("Сервер не повернув коректне зображення")
-                            meta = meta.copy(coverUri = "", coverData = bytes)
+                            meta = meta.copy(coverUri = "", coverData = bytes, removeCover = false)
                             status = "Обкладинку завантажено. Вона буде вбудована у книгу під час збереження."
                         } catch (e: Exception) {
                             status = "Не вдалося завантажити обкладинку: ${e.message}"
@@ -320,16 +330,33 @@ private fun BookMetaScreen() {
                 scope.launch {
                     busy = true
                     try {
-                        val backup = withContext(Dispatchers.IO) {
+                        val (backup, verifiedMeta) = withContext(Dispatchers.IO) {
                             val file = BackupManager.backup(
                                 context.contentResolver, selectedUri,
                                 File(context.filesDir, "backups"), selectedName
                             )
                             BookFile.write(context.contentResolver, selectedUri, updated)
-                            OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}")
-                            file
+                            val verified = BookFile.read(context.contentResolver, selectedUri)
+                            val fieldsOk = listOf(
+                                updated.title to verified.title,
+                                updated.author to verified.author,
+                                updated.isbn to verified.isbn,
+                                updated.publisher to verified.publisher,
+                                updated.year to verified.year,
+                                updated.language to verified.language,
+                                updated.subjects to verified.subjects,
+                                updated.series to verified.series,
+                                updated.seriesNumber to verified.seriesNumber
+                            ).all { (expected, actual) ->
+                                expected.trim().replace(Regex("\\s+"), " ") ==
+                                    actual.trim().replace(Regex("\\s+"), " ")
+                            }
+                            if (!fieldsOk) error("Файл записано, але повторна перевірка метаданих виявила розбіжності. Є резервна копія.")
+                            OperationLog.add(context.filesDir, "Збереження", selectedName, true, "Резервна копія: ${file.name}; повторне читання успішне")
+                            file to verified
                         }
-                        original = updated.copy()
+                        meta = verifiedMeta
+                        original = verifiedMeta.copy()
                         backups = BackupManager.list(File(context.filesDir, "backups"), selectedName)
                         recentLogs = OperationLog.recent(context.filesDir)
                         status = "Збережено. Резервна копія: ${backup.name}"
