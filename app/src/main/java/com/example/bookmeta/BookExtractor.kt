@@ -1,6 +1,8 @@
 package com.example.bookmeta
 
 import android.content.ContentResolver
+import android.os.Build
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 
 data class ExtractionResult(
@@ -105,40 +107,19 @@ object BookExtractor {
 }
 
 object FailureFileManager {
-    /** Copies a failed book into sourceRoot/Помилка, then removes the original only after a successful copy. */
+    /** Moves the original document into sourceRoot/Помилка using the Storage Access Framework. */
     fun moveToErrorFolder(
         resolver: ContentResolver,
         sourceRoot: DocumentFile,
         input: DocumentFile
     ): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
         val errorFolder = sourceRoot.findFile("Помилка")?.takeIf { it.isDirectory }
             ?: sourceRoot.createDirectory("Помилка")
             ?: return false
-        val originalName = input.name ?: "book"
-        val dot = originalName.lastIndexOf('.')
-        val base = if (dot > 0) originalName.substring(0, dot) else originalName
-        val extension = if (dot > 0) originalName.substring(dot) else ""
-        var candidate = originalName
-        var suffix = 2
-        while (errorFolder.findFile(candidate) != null) {
-            candidate = "$base ($suffix)$extension"
-            suffix++
-        }
-        val mime = if (extension.equals(".epub", true)) "application/epub+zip" else "application/x-fictionbook+xml"
-        val copy = errorFolder.createFile(mime, candidate) ?: return false
-        return try {
-            resolver.openInputStream(input.uri)?.use { source ->
-                resolver.openOutputStream(copy.uri, "wt")?.use { target ->
-                    source.copyTo(target)
-                } ?: error("Не вдалося записати файл")
-            } ?: error("Не вдалося прочитати файл")
-            if (input.delete()) true else {
-                copy.delete()
-                false
-            }
-        } catch (_: Exception) {
-            copy.delete()
-            false
-        }
+        val sourceParent = input.parentFile?.uri ?: sourceRoot.uri
+        return runCatching {
+            DocumentsContract.moveDocument(resolver, input.uri, sourceParent, errorFolder.uri) != null
+        }.getOrDefault(false)
     }
 }
