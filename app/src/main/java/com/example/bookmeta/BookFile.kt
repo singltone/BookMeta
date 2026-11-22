@@ -144,7 +144,7 @@ object BookFile {
             if (value.isBlank()) return
             val escaped = xml(value)
             val regex = Regex(
-                "(<$tag\\\\b[^>]*>).*?(</$tag>)",
+                "(<$tag\\b[^>]*>).*?(</$tag>)",
                 RegexOption.DOT_MATCHES_ALL
             )
             val match = regex.find(xml)
@@ -158,6 +158,35 @@ object BookFile {
 
         replaceText("book-title", meta.title)
         replaceText("annotation", meta.description)
+
+        // Update the first FB2 author while preserving the original XML structure.
+        if (meta.author.isNotBlank()) {
+            val parts = meta.author.trim().split(Regex("\\s+"), limit = 3)
+            val first = parts.getOrElse(0) { "" }
+            val last = parts.getOrElse(1) { "" }
+            val middle = parts.getOrElse(2) { "" }
+            val authorRegex = Regex("""<author\\b[^>]*>.*?</author>""", RegexOption.DOT_MATCHES_ALL)
+            val authorMatch = authorRegex.find(xml)
+            if (authorMatch != null) {
+                var authorXml = authorMatch.value
+                fun setAuthorPart(tag: String, value: String) {
+                    if (value.isBlank()) return
+                    val partRegex = Regex("""(<$tag\\b[^>]*>).*?(</$tag>)""", RegexOption.DOT_MATCHES_ALL)
+                    val partMatch = partRegex.find(authorXml)
+                    if (partMatch != null) {
+                        authorXml = authorXml.replaceRange(
+                            partMatch.range, partMatch.groupValues[1] + xml(value) + partMatch.groupValues[2]
+                        )
+                    } else {
+                        authorXml = authorXml.replace("</author>", "<$tag>${xml(value)}</$tag></author>")
+                    }
+                }
+                setAuthorPart("first-name", first)
+                setAuthorPart("middle-name", middle)
+                setAuthorPart("last-name", last)
+                xml = xml.replaceRange(authorMatch.range, authorXml)
+            }
+        }
         replaceText("lang", meta.language)
         replaceText("isbn", meta.isbn)
         replaceText("publisher", meta.publisher)
@@ -356,8 +385,14 @@ object BookFile {
             if (manifestStart != null) {
                 val manifestEnd = opf.indexOf("</manifest>", manifestStart.range.last)
                 if (manifestEnd >= 0) {
-                    val item = """<item id="$id" href="$coverFile" media-type="$mediaType" properties="cover-image"/>"""
-                    opf = opf.substring(0, manifestEnd) + item + opf.substring(manifestEnd)
+                    // Remove an older BookMeta cover entry before adding the replacement.
+                    val oldItem = Regex("""<item\\b(?=[^>]*id=["']bookmeta-cover["'])[^>]*/?>""", RegexOption.IGNORE_CASE)
+                    opf = oldItem.replace(opf, "")
+                    val refreshedManifestEnd = opf.indexOf("</manifest>", manifestStart.range.first)
+                    if (refreshedManifestEnd >= 0) {
+                        val item = """<item id="$id" href="$coverFile" media-type="$mediaType" properties="cover-image"/>"""
+                        opf = opf.substring(0, refreshedManifestEnd) + item + opf.substring(refreshedManifestEnd)
+                    }
                 }
             }
 
