@@ -132,7 +132,10 @@ object FailureFileManager {
                     source.copyTo(target)
                 } ?: error("Не вдалося записати файл")
             } ?: error("Не вдалося прочитати файл")
-            input.delete()
+            if (input.delete()) true else {
+                copy.delete()
+                false
+            }
         } catch (_: Exception) {
             copy.delete()
             false
