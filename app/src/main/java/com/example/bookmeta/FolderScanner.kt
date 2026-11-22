@@ -7,7 +7,7 @@ object FolderScanner {
         val found = mutableListOf<DocumentFile>()
         fun walk(dir: DocumentFile) {
             dir.listFiles().forEach { item ->
-                if (item.isDirectory && recursive) walk(item)
+                if (item.isDirectory && recursive && item.name != "Помилка") walk(item)
                 else if (item.isFile && (item.name?.lowercase()?.endsWith(".epub") == true || item.name?.lowercase()?.endsWith(".fb2") == true)) found += item
             }
         }
