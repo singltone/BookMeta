@@ -98,10 +98,13 @@ object BookFile {
             error("Перевірка перед записом не пройдена: обкладинку не вдалося вбудувати")
         }
 
-        resolver.openOutputStream(uri, "wt")?.use {
+        val outputStream = runCatching { resolver.openOutputStream(uri, "wt") }.getOrNull()
+            ?: resolver.openOutputStream(uri, "w")
+            ?: error("Не вдалося записати файл")
+        outputStream.use {
             it.write(output)
             it.flush()
-        } ?: error("Не вдалося записати файл")
+        }
     }
 
     // ---------------- FB2 ----------------
