@@ -397,6 +397,63 @@ private fun BookMetaScreen() {
                     Text(item.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 }
             }
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy && batchItems.any { it.selected },
+                onClick = {
+                    val selected = batchItems.filter { it.selected }
+                    scope.launch {
+                        busy = true
+                        var updatedCount = 0
+                        var noMetadataCount = 0
+                        var failedCount = 0
+                        selected.forEach { item ->
+                            try {
+                                val found = withContext(Dispatchers.IO) {
+                                    val current = BookFile.read(context.contentResolver, item.uri)
+                                    val fileTitle = item.name.substringBeforeLast('.', item.name)
+                                    val searchTerm = current.isbn.takeIf { it.isNotBlank() }
+                                        ?: listOf(current.title.ifBlank { fileTitle }, current.author)
+                                            .filter { it.isNotBlank() }.joinToString(" ")
+                                    if (searchTerm.isBlank()) null
+                                    else MetadataSearch.searchAll(searchTerm).firstOrNull()?.let { candidate ->
+                                        val updated = BatchEditor.apply(candidate, current, true)
+                                        val backup = BackupManager.backup(
+                                            context.contentResolver, item.uri,
+                                            File(context.filesDir, "backups"), item.name
+                                        )
+                                        BookFile.write(context.contentResolver, item.uri, updated)
+                                        OperationLog.add(context.filesDir, "Автопошук метаданих", item.name, true, "Резервна копія: ${backup.name}")
+                                        candidate
+                                    }
+                                }
+                                if (found == null) {
+                                    val moved = withContext(Dispatchers.IO) {
+                                        val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
+                                        val file = root?.let { FolderScanner.scan(it, true).firstOrNull { doc -> doc.uri == item.uri } }
+                                        root != null && file != null && FailureFileManager.moveToErrorFolder(context.contentResolver, root, file)
+                                    }
+                                    if (moved) noMetadataCount++ else failedCount++
+                                    OperationLog.add(context.filesDir, "Автопошук метаданих", item.name, false,
+                                        if (moved) "Метадані не знайдено; переміщено до «Помилка»" else "Метадані не знайдено; не вдалося перемістити файл")
+                                } else updatedCount++
+                            } catch (e: Exception) {
+                                val moved = withContext(Dispatchers.IO) {
+                                    val root = batchSourceUri?.let { DocumentFile.fromTreeUri(context, it) }
+                                    val file = root?.let { FolderScanner.scan(it, true).firstOrNull { doc -> doc.uri == item.uri } }
+                                    root != null && file != null && FailureFileManager.moveToErrorFolder(context.contentResolver, root, file)
+                                }
+                                if (moved) failedCount++ else failedCount++
+                                OperationLog.add(context.filesDir, "Автопошук метаданих", item.name, false, e.message.orEmpty())
+                            }
+                        }
+                        recentLogs = OperationLog.recent(context.filesDir)
+                        status = "Автопошук завершено: оновлено $updatedCount; без метаданих переміщено: $noMetadataCount; інші помилки: $failedCount."
+                        busy = false
+                    }
+                }
+            ) { Text("Знайти метадані для кожної книги") }
+
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !busy && batchItems.any { it.selected } && hasMetadataToApply(meta),
