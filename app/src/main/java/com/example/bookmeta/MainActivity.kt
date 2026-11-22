@@ -228,7 +228,7 @@ private fun BookMetaScreen() {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        meta = candidate
+                        meta = candidate.copy(coverUri = meta.coverUri, coverData = meta.coverData, removeCover = meta.removeCover)
                         status = "Обрано: ${candidate.title}. Перевір метадані."
                         searchResults = emptyList()
                     }
@@ -480,7 +480,11 @@ private fun BookMetaScreen() {
                                         ?: titleSearch.takeIf { it.isNotBlank() }
                                             ?.let { MetadataSearch.searchAll(it).firstOrNull() }
                                     candidate?.let { candidate ->
-                                        val updated = BatchEditor.apply(candidate, current, true)
+                                        var updated = BatchEditor.apply(candidate, current, true)
+                                        if (updated.coverData == null && updated.coverUri.isBlank() && candidate.coverUrl.isNotBlank()) {
+                                            val downloadedCover = runCatching { CoverManager.downloadAsJpeg(candidate.coverUrl) }.getOrNull()
+                                            if (downloadedCover != null) updated = updated.copy(coverData = downloadedCover, removeCover = false)
+                                        }
                                         val backup = BackupManager.backup(
                                             context.contentResolver, item.uri,
                                             File(context.filesDir, "backups"), item.name
@@ -651,4 +655,4 @@ private fun hasMetadataToApply(meta: BookMeta): Boolean =
         meta.title, meta.author, meta.description, meta.publisher, meta.year,
         meta.isbn, meta.language, meta.subjects, meta.series, meta.seriesNumber,
         meta.coverUri
-    ).any { it.isNotBlank() } || meta.coverData != null
+    ).any { it.isNotBlank() } || meta.coverData != null || meta.removeCover
