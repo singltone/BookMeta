@@ -393,10 +393,26 @@ object BookFile {
     private fun zip(entries: Map<String, ByteArray>): ByteArray {
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
-            entries.forEach { (name, bytes) ->
-                zip.putNextEntry(ZipEntry(name))
-                zip.write(bytes)
+            // EPUB requires the mimetype entry to be first and stored without compression.
+            val mimetype = entries["mimetype"]
+            if (mimetype != null) {
+                val entry = ZipEntry("mimetype").apply {
+                    method = ZipEntry.STORED
+                    size = mimetype.size.toLong()
+                    compressedSize = mimetype.size.toLong()
+                    crc = java.util.zip.CRC32().apply { update(mimetype) }.value
+                }
+                zip.putNextEntry(entry)
+                zip.write(mimetype)
                 zip.closeEntry()
+            }
+
+            entries.forEach { (name, bytes) ->
+                if (name != "mimetype") {
+                    zip.putNextEntry(ZipEntry(name))
+                    zip.write(bytes)
+                    zip.closeEntry()
+                }
             }
         }
         return output.toByteArray()
