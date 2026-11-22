@@ -115,6 +115,7 @@ private fun BookMetaScreen() {
         }
     }
 
+    @Composable
     fun updateField(label: String, value: String, onChange: (String) -> Unit) {
         OutlinedTextField(
             value = value,
