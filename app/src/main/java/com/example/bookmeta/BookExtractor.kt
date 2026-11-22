@@ -82,7 +82,7 @@ object BookExtractor {
                     throw e
                 }
             } catch (e: Exception) {
-                val moved = runCatching { FailureFileManager.moveToErrorFolder(resolver, source, input) }.getOrDefault(false)
+                val moved = runCatching { FailureFileManager.moveOrCopyToErrorFolder(resolver, source, input) }.getOrDefault(false)
                 if (moved) movedToError++
                 errors.add("${name}: ${e.message ?: "помилка копіювання"}")
             }
@@ -107,19 +107,54 @@ object BookExtractor {
 }
 
 object FailureFileManager {
-    /** Moves the original document into sourceRoot/Помилка using the Storage Access Framework. */
-    fun moveToErrorFolder(
+    /** Tries native move first; falls back to copy, deleting source only after a complete copy. */
+    fun moveOrCopyToErrorFolder(
         resolver: ContentResolver,
         sourceRoot: DocumentFile,
         input: DocumentFile
     ): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
         val errorFolder = sourceRoot.findFile("Помилка")?.takeIf { it.isDirectory }
             ?: sourceRoot.createDirectory("Помилка")
             ?: return false
-        val sourceParent = input.parentFile?.uri ?: sourceRoot.uri
-        return runCatching {
-            DocumentsContract.moveDocument(resolver, input.uri, sourceParent, errorFolder.uri) != null
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val sourceParent = input.parentFile?.uri ?: sourceRoot.uri
+            val moved = runCatching {
+                DocumentsContract.moveDocument(resolver, input.uri, sourceParent, errorFolder.uri) != null
+            }.getOrDefault(false)
+            if (moved) return true
+        }
+
+        val name = input.name ?: "book"
+        val mime = input.type ?: when (name.substringAfterLast('.', "").lowercase()) {
+            "epub" -> "application/epub+zip"
+            "fb2" -> "application/x-fictionbook+xml"
+            else -> "application/octet-stream"
+        }
+        var targetName = name
+        var suffix = 2
+        while (errorFolder.findFile(targetName) != null) {
+            val base = name.substringBeforeLast('.', name)
+            val extension = name.substringAfterLast('.', "")
+            targetName = if (extension.isBlank()) "$base ($suffix)" else "$base ($suffix).$extension"
+            suffix++
+        }
+        val copy = runCatching { errorFolder.createFile(mime, targetName) }.getOrNull() ?: return false
+        val copied = runCatching {
+            resolver.openInputStream(input.uri)?.use { source ->
+                resolver.openOutputStream(copy.uri, "wt")?.use { target ->
+                    source.copyTo(target)
+                    target.flush()
+                } ?: error("Не вдалося відкрити файл призначення")
+            } ?: error("Не вдалося прочитати вихідний файл")
+            true
         }.getOrDefault(false)
+        if (!copied) {
+            copy.delete()
+            return false
+        }
+        // Keep original if provider refuses deletion; never risk losing the book.
+        runCatching { input.delete() }
+        return true
     }
 }
